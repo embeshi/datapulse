@@ -86,9 +86,9 @@ def _parse_prisma_schema(schema_path: Path = Path("prisma/schema.prisma")) -> Di
                 # Parse field attributes
                 attrs = []
                 if field_attrs_str:
-                    # Extract @id, @default, etc.
-                    attr_matches = re.finditer(r'@(\w+)(?:\([^)]*\))?', field_attrs_str)
-                    attrs = [match.group(0) for match in attr_matches]
+                    # Extract all attributes including @map
+                    attr_matches = re.finditer(r'(@\w+(?:\([^)]*\))?)', field_attrs_str)
+                    attrs = [match.group(1) for match in attr_matches]
                 
                 fields.append({
                     'name': field_name,

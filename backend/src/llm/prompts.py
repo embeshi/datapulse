@@ -90,9 +90,11 @@ CONCEPTUAL PLAN:
 
 CRITICAL INSTRUCTIONS:
 1. ONLY use tables and columns that explicitly appear in the DATABASE CONTEXT above.
-2. DO NOT assume or infer the existence of any tables not listed in the DATABASE CONTEXT.
-3. If the plan assumes tables that don't exist in the context, modify your approach to work with ONLY the available tables.
-4. If you cannot fulfill the request with the available tables, return a clear error message as a SQL comment: "-- ERROR: Cannot complete request. Required table X is missing."
+2. When the context shows a column with both a database name and a Prisma name like "product_id (INTEGER) [Prisma: productId]", 
+   ALWAYS use the database column name (product_id) in your SQL queries, NOT the Prisma field name.
+3. DO NOT assume or infer the existence of any tables not listed in the DATABASE CONTEXT.
+4. If the plan assumes tables that don't exist in the context, modify your approach to work with ONLY the available tables.
+5. If you cannot fulfill the request with the available tables, return a clear error message as a SQL comment: "-- ERROR: Cannot complete request. Required table X is missing."
 
 Generate the SQLite SQL query that accurately implements the conceptual plan.
 IMPORTANT: Output ONLY the SQL query string, without any explanation, comments,
