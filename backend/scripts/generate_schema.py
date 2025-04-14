@@ -19,16 +19,19 @@ logger = logging.getLogger(__name__)
 
 # Constants
 PRISMA_SCHEMA_PATH = Path("prisma") / "schema.prisma"
-PRISMA_ENV_PATH = Path(".env.local")  # Path to .env.local file for DATABASE_URL
 DEFAULT_DB_PATH = Path("analysis.db")
 
-def setup_env_file(db_path: Path):
-    """Create .env.local file with DATABASE_URL for Prisma"""
+def modify_schema_for_direct_db_url(schema_content: str, db_path: Path) -> str:
+    """Modify the schema to use a direct file URL instead of env variable"""
     abs_db_path = db_path.resolve()
-    env_content = f'DATABASE_URL="file:{abs_db_path}"\n'
-    
-    PRISMA_ENV_PATH.write_text(env_content)
-    logger.info(f"Created {PRISMA_ENV_PATH} with DATABASE_URL={abs_db_path}")
+    # Replace env("DATABASE_URL") with direct file path
+    modified_schema = re.sub(
+        r'url\s*=\s*env\(\s*"DATABASE_URL"\s*\)',
+        f'url = "file:{abs_db_path}"',
+        schema_content
+    )
+    logger.info(f"Modified schema to use direct DB path: file:{abs_db_path}")
+    return modified_schema
 
 def run_prisma_command(command: list):
     """Run a Prisma CLI command and return the result"""
@@ -84,13 +87,16 @@ def setup_prisma_schema():
         logger.error("Failed to generate schema suggestion")
         return False
     
-    # Write schema to file
-    output_path.write_text(schema)
+    # Modify schema to use direct DB path instead of env variable
+    modified_schema = modify_schema_for_direct_db_url(schema, db_path)
+    
+    # Write modified schema to file
+    output_path.write_text(modified_schema)
     logger.info(f"Schema written to {output_path}")
     
     # Print schema for user review
     print("\n--- Suggested Schema ---\n")
-    print(schema)
+    print(modified_schema)
     print("\n--- End Schema ---\n")
     
     if not args.apply:
@@ -102,9 +108,6 @@ def setup_prisma_schema():
     if confirmation != 'y':
         logger.info("Schema application cancelled by user")
         return False
-    
-    # Setup environment file
-    setup_env_file(db_path)
     
     # Run prisma generate
     success, output = run_prisma_command(["generate"])
