@@ -1,7 +1,7 @@
 import pandas as pd
 import sqlalchemy
 from pathlib import Path
-from typing import Union
+from typing import Union, Dict, List, Optional, Tuple, Any
 import logging
 
 # Configure logging
@@ -57,6 +57,59 @@ def load_csv_to_sqlite(csv_path: Union[str, Path], db_uri: str, table_name: str)
         logger.error(f"Unexpected error writing to database: {e}")
         raise
 
+def load_multiple_csvs_to_sqlite(
+    csv_mapping: Dict[str, Union[str, Path]], 
+    db_uri: str,
+    infer_relationships: bool = False
+) -> Dict[str, bool]:
+    """
+    Loads multiple CSV files into a SQLite database, with optional relationship inference.
+    
+    Args:
+        csv_mapping (Dict[str, Union[str, Path]]): Dictionary mapping table names to CSV file paths
+        db_uri (str): The SQLAlchemy database URI (e.g., 'sqlite:///analysis.db')
+        infer_relationships (bool): Whether to attempt inferring relationships between tables based on column names
+                                   (Not yet implemented)
+    
+    Returns:
+        Dict[str, bool]: Dictionary mapping table names to success status
+        
+    Example:
+        files_to_load = {
+            'sales': 'data/sales.csv',
+            'products': 'data/products.csv',
+            'customers': 'data/customers.csv'
+        }
+        results = load_multiple_csvs_to_sqlite(files_to_load, 'sqlite:///analysis.db')
+    """
+    results = {}
+    
+    logger.info(f"Beginning batch load of {len(csv_mapping)} CSV files to {db_uri}")
+    
+    # First pass: Load all tables
+    for table_name, csv_path in csv_mapping.items():
+        try:
+            load_csv_to_sqlite(csv_path, db_uri, table_name)
+            results[table_name] = True
+            logger.info(f"Successfully loaded {csv_path} to table '{table_name}'")
+        except Exception as e:
+            results[table_name] = False
+            logger.error(f"Failed to load {csv_path} to table '{table_name}': {e}")
+    
+    # Optionally infer and create relationships
+    if infer_relationships:
+        try:
+            logger.info("Relationship inference requested but not yet implemented")
+            # Future: Add code to analyze column names and create foreign key relationships
+            # This would require schema modification after initial table creation
+        except Exception as e:
+            logger.error(f"Error during relationship inference: {e}")
+    
+    # Return status for each table
+    success_count = sum(1 for success in results.values() if success)
+    logger.info(f"Completed batch load: {success_count}/{len(csv_mapping)} tables loaded successfully")
+    return results
+
 # Example Usage (for direct testing)
 if __name__ == "__main__":
     # Assume analysis.db will be created in the current working directory
@@ -78,8 +131,21 @@ if __name__ == "__main__":
          })
          dummy_df.to_csv(SAMPLE_CSV, index=False)
 
+    # Test single file loading
     try:
         load_csv_to_sqlite(SAMPLE_CSV, DB_URI, TABLE_NAME)
-        logger.info("Test load complete.")
+        logger.info("Test single file load complete.")
     except Exception as e:
-        logger.error(f"Test load failed: {e}")
+        logger.error(f"Test single file load failed: {e}")
+        
+    # Test multiple file loading (with the same file for simplicity)
+    try:
+        # In a real scenario, these would be different files
+        mapping = {
+            'sales1': SAMPLE_CSV,
+            'sales2': SAMPLE_CSV
+        }
+        results = load_multiple_csvs_to_sqlite(mapping, DB_URI)
+        logger.info(f"Test multiple files load results: {results}")
+    except Exception as e:
+        logger.error(f"Test multiple files load failed: {e}")
