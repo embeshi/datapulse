@@ -258,3 +258,75 @@
 
 # 2025-04-14 18:32:56.217877
 +/commit
+
+# 2025-04-14 18:33:17.765846
++/git push origin master
+
+# 2025-04-14 19:08:39.891689
++/add backend/src/agents/
+
+# 2025-04-14 19:09:02.449809
++/add backend/src/llm/prompts.py
+
+# 2025-04-14 19:09:21.924662
++/add docs/Agents.md
+
+# 2025-04-14 19:09:25.806084
++/add backend/docs/System.md
+
+# 2025-04-14 19:09:46.277756
++/ask do we have the capability to analyze multiple CSV files/tables?
+
+# 2025-04-14 19:11:41.865216
++Help me add a gitignore file 
+
+# 2025-04-14 19:12:22.534842
++N
+
+# 2025-04-14 21:33:22.317444
++/run git rm --cached .DS_Store
+
+# 2025-04-14 21:33:22.317707
++/run git rm --cached .DS_Store
+
+# 2025-04-14 21:33:22.825383
++/run git rm --cached **/.DS_Store
+
+# 2025-04-14 21:33:22.825455
++/run git rm --cached **/.DS_Store
+
+# 2025-04-14 21:33:23.060586
++/run git add .gitignore
+
+# 2025-04-14 21:33:23.060645
++/run git add .gitignore
+
+# 2025-04-14 21:33:23.292881
++/run git commit -m "chore: update gitignore to exclude .DS_Store and other system files"
+
+# 2025-04-14 21:33:23.292955
++/run git commit -m "chore: update gitignore to exclude .DS_Store and other system files"
+
+# 2025-04-14 21:33:56.622250
++N
+
+# 2025-04-14 21:34:06.742924
++/git push origin main
+
+# 2025-04-14 21:34:13.324045
++/git push origin master
+
+# 2025-04-14 21:34:37.925242
++/ask do we have the capability to analyze multiple CSV files/tables by joining them?
+
+# 2025-04-14 21:40:09.729924
++/ask do we use sqlalchemy at all for our data?
+
+# 2025-04-14 22:25:11.683119
++/drop .gitignore
+
+# 2025-04-14 22:27:41.038184
++/git add .
+
+# 2025-04-14 22:27:43.086937
++/commit

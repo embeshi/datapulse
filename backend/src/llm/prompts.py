@@ -200,3 +200,57 @@ Database Context:
     print("\n--- INTERPRETER PROMPT (Empty) ---")
     print(interpreter_prompt_empty)
     print("---------------------------------")
+
+def get_schema_suggestion_prompt(csv_samples: Dict[str, str]) -> str:
+    """
+    Generates the prompt for the LLM to suggest a Prisma schema.
+
+    Args:
+        csv_samples: Dictionary mapping filename to string containing headers and sample rows.
+
+    Returns:
+        The formatted prompt string.
+    """
+    sample_texts = []
+    for filename, content in csv_samples.items():
+        sample_texts.append(f"-- Start Sample: {filename} --\n{content}\n-- End Sample: {filename} --")
+
+    all_samples_text = "\n\n".join(sample_texts)
+
+    prompt = f"""
+You are an expert database schema designer specializing in Prisma schema syntax for SQLite.
+Analyze the following CSV samples (headers and first few data rows) provided by the user.
+Your goal is to generate a suggested schema.prisma file content.
+
+RULES:
+
+Infer table names from the filenames (e.g., 'sales.csv' -> model Sales). Use PascalCase for model names. Use @@map("original_filename_base") if the table name should differ from the model name.
+Infer column names from the CSV headers. Use camelCase or snake_case for field names. Use @map("Original Header") if the field name significantly differs from the header.
+Infer appropriate Prisma data types compatible with SQLite: String, Int, Float, Boolean, DateTime. Be conservative: use String if type is ambiguous, mixed, or format is unclear. For dates/times, suggest DateTime if format looks standard (like ISO 8601 or YYYY-MM-DD HH:MM:SS), otherwise use String.
+Identify potential primary keys (usually columns named 'id', 'xxx_id'). Mark the best candidate with @id @default(autoincrement()) if it looks like a sequential integer, or just @id if it's another type (like a string UUID - though less common in CSVs). If no clear ID exists, let Prisma handle it or don't add @id.
+Identify potential optional fields (columns with empty strings or many missing values in samples) and mark the type with ? (e.g., String?).
+Attempt to infer relationships between tables based on matching column names (e.g., product_id in Sales likely relates to product_id in Products). Define these using @relation attribute. Specify both sides of the relation if possible.
+Format the output STRICTLY as the content of a schema.prisma file.
+Include the standard datasource db block for SQLite, pointing to env("DATABASE_URL").
+Include the standard generator client block specifying provider = "prisma-client-py".
+Do NOT include any explanations, apologies, or text outside the schema definition itself. This output will be saved directly to a file.
+CSV SAMPLES:
+{all_samples_text}
+
+Generate the suggested schema.prisma content below:
+// Datasource and Generator Blocks
+datasource db {{
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}}
+
+generator client {{
+  provider = "prisma-client-py"
+  # interface = "asyncio" // Optional: uncomment if async needed
+}}
+
+// Inferred Models Below
+"""
+    return prompt.strip()
+
+
