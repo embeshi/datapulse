@@ -138,17 +138,17 @@ def _parse_prisma_schema(schema_path: Path = Path("prisma/schema.prisma")) -> Di
 
 def get_prisma_database_context_string(db_uri: str, schema_path: Path = Path("prisma/schema.prisma")) -> str:
     """
-    Generates a database context string based on the Prisma schema and 
-    adds data summaries using SQLAlchemy.
+    Generates a rich, structured database context string based on the Prisma schema and 
+    adds data summaries using SQLAlchemy. Uses a Markdown-like format for better LLM comprehension.
     
     Args:
         db_uri: The SQLAlchemy database URI (e.g., 'sqlite:///analysis.db')
         schema_path: Path to the schema.prisma file
         
     Returns:
-        String containing formatted schema and summaries
+        String containing formatted schema and summaries in a structured, information-rich format
     """
-    logger.info("Generating database context from Prisma schema...")
+    logger.info("Generating enriched database context from Prisma schema...")
     try:
         # Parse Prisma schema
         schema_data = _parse_prisma_schema(schema_path)
@@ -164,38 +164,48 @@ def get_prisma_database_context_string(db_uri: str, schema_path: Path = Path("pr
         
         for model_name, model_info in schema_data['models'].items():
             table_name = model_info['table_name']
-            context_parts.append(f"\n-- Table: {table_name} --")
+            context_parts.append(f"\n--- Table: {table_name} (Model: {model_name}) ---")
             
-            # Schema part - format fields nicely
-            fields_info = []
+            # Generate a simple description based on the model name and relations
+            model_description = _generate_model_description(model_name, model_info)
+            context_parts.append(f"/// {model_description}")
+            
+            # Identify primary key
+            primary_keys = []
+            unique_fields = []
+            
             for field in model_info['fields']:
-                # Map Prisma types to equivalent SQLite types
-                prisma_type = field['type']
-                sqlite_type = prisma_type
-                if prisma_type.endswith('?'):
-                    sqlite_type = prisma_type[:-1]  # Remove ? for display
+                is_primary = any('@id' in attr for attr in field['attributes'])
+                is_unique = any('@unique' in attr for attr in field['attributes'])
                 
-                # Map Prisma types to rough SQLite equivalents for display
-                if sqlite_type.startswith('Int'):
-                    sqlite_type = 'INTEGER'
-                elif sqlite_type.startswith('String'):
-                    sqlite_type = 'TEXT'
-                elif sqlite_type.startswith('Float'):
-                    sqlite_type = 'REAL'
-                elif sqlite_type.startswith('Boolean'):
-                    sqlite_type = 'INTEGER'  # SQLite uses INTEGER for boolean
-                elif sqlite_type.startswith('DateTime'):
-                    sqlite_type = 'TEXT'  # SQLite stores dates as TEXT
+                if is_primary:
+                    primary_keys.append(f"{field['name']} ({field['type']})")
+                elif is_unique:
+                    unique_fields.append(field['name'])
+            
+            if primary_keys:
+                context_parts.append(f"Primary Key: {', '.join(primary_keys)}")
+            
+            if unique_fields:
+                context_parts.append(f"Unique Fields: {', '.join(unique_fields)}")
+            
+            # Schema part - format fields as a detailed list
+            context_parts.append("Columns:")
+            for field in model_info['fields']:
+                # Get original Prisma type
+                field_type = field['type']
                 
-                # Add nullability indicator for clarity
-                if prisma_type.endswith('?'):
-                    sqlite_type += " NULL"
-                else:
-                    sqlite_type += " NOT NULL"
-                
-                # Add primary key indicator
-                if any('@id' in attr for attr in field['attributes']):
-                    sqlite_type += " PRIMARY KEY"
+                # Format attributes
+                attrs_str = ""
+                if field['attributes']:
+                    formatted_attrs = []
+                    for attr in field['attributes']:
+                        # Clean up attribute format
+                        attr = attr.replace('@map("', '@map("').replace('@default(', '@default(')
+                        formatted_attrs.append(attr)
+                    
+                    if formatted_attrs:
+                        attrs_str = f" [{' '.join(formatted_attrs)}]"
                 
                 # Check for @map attribute to find actual DB column name
                 db_column_name = field['name']  # Default to field name
@@ -205,26 +215,32 @@ def get_prisma_database_context_string(db_uri: str, schema_path: Path = Path("pr
                         db_column_name = map_match.group(1)
                         break
                 
-                # Show both Prisma field name and actual DB column name when they differ
+                # Generate a simple description for the field
+                field_description = _generate_field_description(field['name'], field_type, model_name)
+                
+                # Format the field entry
+                field_entry = f"  - {field['name']} ({field_type}){attrs_str}"
+                
+                # Add DB column name if different
                 if db_column_name != field['name']:
-                    fields_info.append(f"{db_column_name} ({sqlite_type}) [Prisma: {field['name']}]")
-                else:
-                    fields_info.append(f"{db_column_name} ({sqlite_type})")
-            
-            cols_str = ", ".join(fields_info)
-            context_parts.append(f"  Schema Columns: {cols_str}")
+                    field_entry += f" [DB: {db_column_name}]"
+                
+                field_entry += f" /// {field_description}"
+                context_parts.append(field_entry)
             
             # Add relation info if present
             if model_info['relations']:
-                relations_info = []
+                context_parts.append("Relationships:")
                 for relation in model_info['relations']:
                     if relation['fields'] and relation['references_fields']:
-                        rel_info = f"{relation['name']} -> {relation['references']} via {', '.join(relation['fields'])} -> {', '.join(relation['references_fields'])}"
-                        relations_info.append(rel_info)
-                
-                if relations_info:
-                    relations_str = ", ".join(relations_info)
-                    context_parts.append(f"  Relations: {relations_str}")
+                        # Format as "fieldName: Links to TargetModel via [sourceField] -> [targetField]"
+                        rel_info = f"  - {relation['name']}: Links to {relation['references']} via " \
+                                  f"[{', '.join(relation['fields'])}] -> [{', '.join(relation['references_fields'])}]"
+                        context_parts.append(rel_info)
+                    elif 'is_array' in relation and relation['is_array']:
+                        # Format as "fieldName: List of related TargetModel records"
+                        rel_info = f"  - {relation['name']}: List of related {relation['references']} records"
+                        context_parts.append(rel_info)
             
             # Data summary part
             try:
@@ -232,26 +248,122 @@ def get_prisma_database_context_string(db_uri: str, schema_path: Path = Path("pr
                 columns_info = [{'name': field['name'], 'type': field['type']} for field in model_info['fields']]
                 summary = get_table_summary(engine, table_name, columns_info)
                 
-                context_parts.append(f"  Summary:")
+                context_parts.append("Summary:")
                 if 'error' in summary:
-                    context_parts.append(f"    Error: {summary['error']}")
+                    context_parts.append(f"  Error: {summary['error']}")
                 else:
-                    context_parts.append(f"    Total Rows: {summary.get('row_count', 'N/A')}")
+                    context_parts.append(f"  Total Rows: {summary.get('row_count', 'N/A')}")
                     if summary.get('row_count', 0) > 0:  # Only show details if table not empty
-                        context_parts.append(f"    Null Counts: {summary.get('null_counts', {})}")
-                        context_parts.append(f"    Distinct Counts: {summary.get('distinct_counts', {})}")
+                        context_parts.append(f"  Null Counts: {summary.get('null_counts', {})}")
+                        context_parts.append(f"  Distinct Counts: {summary.get('distinct_counts', {})}")
                         if summary.get('basic_stats'):
-                            context_parts.append(f"    Basic Stats (Numeric): {summary.get('basic_stats', {})}")
+                            context_parts.append(f"  Basic Stats (Numeric): {summary.get('basic_stats', {})}")
                         if summary.get('value_counts'):
-                            context_parts.append(f"    Top Value Counts (Low Cardinality Text): {summary.get('value_counts', {})}")
+                            context_parts.append(f"  Top Value Counts (Low Cardinality Text): {summary.get('value_counts', {})}")
             except Exception as e:
                 logger.error(f"Error getting summary for table '{table_name}': {e}")
-                context_parts.append(f"  Summary: Error - {e}")
+                context_parts.append(f"  Summary Error: {e}")
         
         context_string = "\n".join(context_parts).strip()
-        logger.info("Database context string generated successfully.")
+        logger.info("Enriched database context string generated successfully.")
         return context_string
     
     except Exception as e:
         logger.error(f"Error generating database context: {e}")
         return f"Error: An unexpected error occurred during context generation: {e}"
+
+def _generate_model_description(model_name: str, model_info: Dict[str, Any]) -> str:
+    """Generate a simple description for a model based on its name and structure."""
+    # Check if it's a typical model by looking at its name
+    model_name_lower = model_name.lower()
+    
+    if model_name_lower == 'sales' or model_name_lower == 'sale':
+        return "Stores individual sales transactions. Links customers and products."
+    elif model_name_lower == 'products' or model_name_lower == 'product':
+        return "Represents the products available for sale."
+    elif model_name_lower == 'customers' or model_name_lower == 'customer':
+        return "Stores customer information."
+    elif model_name_lower == 'orders' or model_name_lower == 'order':
+        return "Contains order information for purchases."
+    elif model_name_lower.endswith('inventory'):
+        return "Tracks inventory levels and stock information."
+    elif model_name_lower.endswith('categories'):
+        return "Defines product categories for classification."
+    elif model_name_lower.endswith('users'):
+        return "Contains user accounts and authentication information."
+    elif model_name_lower.endswith('vendors') or model_name_lower.endswith('suppliers'):
+        return "Information about vendors/suppliers that provide products."
+    else:
+        # Generic description based on the table name
+        return f"Contains data for {model_name.replace('_', ' ').lower()}."
+
+def _generate_field_description(field_name: str, field_type: str, model_name: str) -> str:
+    """Generate a simple description for a field based on its name and type."""
+    name_lower = field_name.lower()
+    
+    # ID fields
+    if name_lower.endswith('_id') or name_lower == 'id':
+        if name_lower == 'id' or name_lower == f"{model_name.lower()}_id":
+            return f"Unique identifier for the {model_name.lower()}"
+        else:
+            referenced_entity = name_lower.replace('_id', '')
+            return f"Foreign key linking to the {referenced_entity} table"
+    
+    # Common fields
+    if name_lower == 'name':
+        return f"Name of the {model_name.lower()}"
+    elif name_lower == 'description':
+        return f"Description of the {model_name.lower()}"
+    elif name_lower == 'price' or name_lower == 'unit_price':
+        return "Price value"
+    elif name_lower == 'amount':
+        return "The monetary amount"
+    elif name_lower == 'quantity':
+        return "Quantity value"
+    elif name_lower == 'email':
+        return "Email address"
+    elif name_lower == 'phone' or name_lower == 'phone_number':
+        return "Phone number"
+    elif name_lower == 'address':
+        return "Physical address"
+    elif name_lower == 'city':
+        return "City name"
+    elif name_lower == 'state' or name_lower == 'province':
+        return "State or province"
+    elif name_lower == 'country':
+        return "Country name"
+    elif name_lower == 'postal_code' or name_lower == 'zip_code':
+        return "Postal or ZIP code"
+    elif name_lower == 'status':
+        return "Status indicator"
+    elif name_lower.endswith('_date') or name_lower == 'date':
+        date_type = name_lower.replace('_date', '')
+        if date_type:
+            return f"Date of {date_type}"
+        else:
+            return "Date value"
+    elif name_lower == 'created_at' or name_lower == 'created_date':
+        return "When the record was created"
+    elif name_lower == 'updated_at' or name_lower == 'updated_date':
+        return "When the record was last updated"
+    elif name_lower == 'deleted_at' or name_lower == 'deleted_date':
+        return "When the record was deleted (for soft deletes)"
+    elif name_lower == 'is_active' or name_lower == 'active':
+        return "Whether the record is active"
+    elif name_lower == 'category' or name_lower == 'category_name':
+        return "Category classification"
+    elif name_lower == 'notes' or name_lower == 'comments':
+        return "Additional notes or comments"
+    
+    # Generic description based on the field name and type
+    field_base_name = name_lower.replace('_', ' ')
+    
+    # Handle specific data types
+    if field_type.startswith('DateTime'):
+        return f"Timestamp for {field_base_name}"
+    elif field_type.startswith('Boolean'):
+        return f"Flag indicating {field_base_name}"
+    elif field_type.endswith('?'):
+        return f"Optional {field_base_name}"
+    else:
+        return f"The {field_base_name} value"
