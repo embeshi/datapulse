@@ -180,7 +180,7 @@ datasource db {{
 
 generator client {{
   provider = "prisma-client-py"
-  # interface = "asyncio" // Optional: uncomment if async needed
+  // interface = "asyncio" // Optional: uncomment if needed
 }}
 
 // Inferred Models Below
