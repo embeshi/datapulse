@@ -1,6 +1,7 @@
 import pandas as pd
 import json
 import logging
+import traceback
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 import numpy as np
@@ -19,7 +20,7 @@ def analyze_dataset(df: pd.DataFrame, table_name: str) -> Dict[str, Any]:
     Returns:
         Dictionary containing analysis results
     """
-    logger.info(f"Analyzing dataset: {table_name}")
+    logger.info(f"Starting full analysis of dataset: {table_name} with {len(df)} rows and {len(df.columns)} columns")
     
     # Basic dataset info
     analysis = {
@@ -30,18 +31,23 @@ def analyze_dataset(df: pd.DataFrame, table_name: str) -> Dict[str, Any]:
     }
     
     # Analyze each column
-    for column in df.columns:
+    logger.info(f"Analyzing {len(df.columns)} columns for dataset: {table_name}")
+    for i, column in enumerate(df.columns):
+        logger.info(f"[{i+1}/{len(df.columns)}] Analyzing column: {column} ({df[column].dtype})")
         col_analysis = analyze_column(df, column)
         analysis["columns"][column] = col_analysis
     
     # Get LLM descriptions for columns
+    logger.info(f"Generating LLM descriptions for columns in: {table_name}")
     descriptions = get_column_descriptions(df, table_name)
+    logger.info(f"Received descriptions for {len(descriptions)} columns")
     
     # Add descriptions to the analysis
     for column, description in descriptions.items():
         if column in analysis["columns"]:
             analysis["columns"][column]["description"] = description
     
+    logger.info(f"Dataset analysis completed for: {table_name}")
     return analysis
 
 def analyze_column(df: pd.DataFrame, column: str) -> Dict[str, Any]:
@@ -126,10 +132,11 @@ def get_column_descriptions(df: pd.DataFrame, table_name: str) -> Dict[str, str]
     Returns:
         Dictionary mapping column names to descriptions
     """
-    logger.info(f"Generating column descriptions for table: {table_name}")
+    logger.info(f"Starting LLM column description generation for table: {table_name}")
     
     # Create sample data for the LLM
     sample_rows = df.head(5).to_dict(orient='records')
+    logger.info(f"Prepared sample data with {len(sample_rows)} rows for LLM prompt")
     
     # Format the prompt for the LLM
     prompt = f"""
@@ -152,9 +159,13 @@ For each column, provide:
 Format your answer as a JSON object with column names as keys and descriptions as values.
 Example format: {{"column_name": "This column represents..."}}
 """
+    logger.debug(f"Generated LLM prompt of {len(prompt)} characters")
     
     try:
+        logger.info(f"Calling LLM to generate descriptions for {len(df.columns)} columns")
         response = client.call_llm(prompt)
+        logger.info(f"Received LLM response of {len(response)} characters")
+        
         # Try to extract JSON from the response
         try:
             # Find JSON-like content between curly braces
@@ -163,12 +174,14 @@ Example format: {{"column_name": "This column represents..."}}
             if json_match:
                 json_str = json_match.group(0)
                 descriptions = json.loads(json_str)
+                logger.info(f"Successfully extracted descriptions for {len(descriptions)} columns")
                 return descriptions
             else:
-                logger.warning(f"Could not extract JSON from LLM response: {response}")
+                logger.warning(f"Could not extract JSON from LLM response: {response[:200]}...")
                 return {}
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse column descriptions JSON: {e}")
+            logger.error(f"Raw response excerpt: {response[:200]}...")
             return {}
     except Exception as e:
         logger.error(f"Failed to generate column descriptions: {e}")
@@ -216,16 +229,20 @@ def analyze_tables_from_csv(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    for table_name, csv_path in csv_mapping.items():
+    logger.info(f"Starting analysis of {len(csv_mapping)} tables, results will be saved to {output_path}")
+    
+    for i, (table_name, csv_path) in enumerate(csv_mapping.items()):
         try:
-            logger.info(f"Loading and analyzing {csv_path} for table '{table_name}'")
+            logger.info(f"[{i+1}/{len(csv_mapping)}] Loading and analyzing {csv_path} for table '{table_name}'")
             df = pd.read_csv(csv_path)
+            logger.info(f"Successfully loaded {len(df)} rows and {len(df.columns)} columns from {csv_path}")
             
             # Perform analysis
             analysis = analyze_dataset(df, table_name)
             
             # Save analysis
             file_path = output_path / f"{table_name}_analysis.json"
+            logger.info(f"Saving analysis results to {file_path}")
             success = save_analysis_to_file(analysis, file_path)
             
             results[table_name] = success
@@ -236,8 +253,10 @@ def analyze_tables_from_csv(
         
         except Exception as e:
             logger.error(f"Failed to analyze {csv_path} for table '{table_name}': {e}")
+            logger.error(traceback.format_exc())
             results[table_name] = False
     
+    logger.info(f"Completed analysis of {len(csv_mapping)} tables with {sum(results.values())} successes")
     return results
 
 def prompt_and_analyze_datasets(csv_mapping: Dict[str, Union[str, Path]]) -> None:
@@ -249,21 +268,27 @@ def prompt_and_analyze_datasets(csv_mapping: Dict[str, Union[str, Path]]) -> Non
     """
     try:
         print("\n=== Dataset Analysis ===")
+        logger.info(f"Prompting user to run dataset analysis on {len(csv_mapping)} tables")
         print(f"Would you like to run an initial dataset analysis on the {len(csv_mapping)} tables?")
         print("This will generate statistics and infer column descriptions using AI.")
         confirmation = input("Run dataset analysis? (y/N): ").strip().lower()
         
         if confirmation == 'y':
             logger.info(f"User confirmed dataset analysis for {len(csv_mapping)} tables")
+            print("\nStarting dataset analysis...")
+            print(f"This will analyze {len(csv_mapping)} tables: {', '.join(csv_mapping.keys())}")
+            
             results = analyze_tables_from_csv(csv_mapping)
             
             # Report results
             success_count = sum(1 for success in results.values() if success)
+            logger.info(f"Analysis complete: {success_count}/{len(csv_mapping)} tables analyzed successfully")
             print(f"\nAnalysis complete: {success_count}/{len(csv_mapping)} tables analyzed successfully.")
             print(f"Results saved to the 'analysis_results' directory.")
             
             if success_count < len(csv_mapping):
                 failed_tables = [table for table, success in results.items() if not success]
+                logger.warning(f"Failed to analyze tables: {', '.join(failed_tables)}")
                 print(f"Tables that could not be analyzed: {', '.join(failed_tables)}")
         else:
             logger.info("User declined dataset analysis")
@@ -271,4 +296,5 @@ def prompt_and_analyze_datasets(csv_mapping: Dict[str, Union[str, Path]]) -> Non
     
     except Exception as e:
         logger.error(f"Error during dataset analysis prompt/execution: {e}")
+        logger.error(traceback.format_exc())
         print(f"\nERROR: Dataset analysis failed: {e}")
