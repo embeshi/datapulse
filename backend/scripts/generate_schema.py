@@ -5,6 +5,7 @@ import sys
 import os
 import logging
 import re
+import traceback
 from pathlib import Path
 import subprocess
 import argparse
@@ -121,6 +122,41 @@ def setup_prisma_schema():
         return False
     
     logger.info(f"Schema successfully applied to database: {db_path}")
+    
+    # Now let's load the data from CSV files into the tables
+    try:
+        # Import the loader here to avoid circular imports
+        from src.data_handling.loader import load_multiple_csvs_to_sqlite
+        
+        # Create a mapping from CSV files to table names (infer table name from file name)
+        csv_mapping = {}
+        for csv_path in csv_paths:
+            # Extract the base name without extension as the table name
+            table_name = Path(csv_path).stem.lower()
+            csv_mapping[table_name] = str(csv_path)
+        
+        # Create a database URI for SQLAlchemy
+        db_uri = f"sqlite:///{db_path.resolve()}"
+        
+        logger.info(f"Loading data from CSV files into database: {csv_mapping}")
+        results = load_multiple_csvs_to_sqlite(csv_mapping, db_uri)
+        
+        # Check if all files were loaded successfully
+        if all(results.values()):
+            logger.info("All data loaded successfully into the database.")
+        else:
+            # Log which files failed to load
+            failed_tables = [table for table, success in results.items() if not success]
+            logger.warning(f"Some tables failed to load: {failed_tables}")
+            print(f"\nWARNING: Some tables failed to load: {failed_tables}")
+    
+    except Exception as e:
+        logger.error(f"Error loading data into the database: {e}")
+        logger.error(traceback.format_exc())
+        print(f"\nERROR: Failed to load data: {e}")
+        # We don't return False here because the schema was applied successfully
+        # We just couldn't load the data
+    
     return True
 
 if __name__ == "__main__":
