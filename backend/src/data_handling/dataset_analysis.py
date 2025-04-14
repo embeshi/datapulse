@@ -65,6 +65,13 @@ def analyze_column(df: pd.DataFrame, column: str) -> Dict[str, Any]:
         "unique_count": int(col_data.nunique())
     }
     
+    # Add sample values for object type columns
+    if str(col_data.dtype) == "object":
+        # Get up to 10 unique sample values
+        unique_samples = col_data.dropna().unique()[:10]
+        # Convert to strings and add to result
+        result["sample_values"] = [str(val) for val in unique_samples]
+    
     # Handle different data types
     if pd.api.types.is_numeric_dtype(col_data):
         # Numeric column
