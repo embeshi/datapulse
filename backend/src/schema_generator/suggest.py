@@ -44,6 +44,10 @@ def _validate_prisma_schema_output(llm_output: str) -> Tuple[bool, Optional[str]
     # Check for potentially dangerous types where nullable might be required
     # This is a heuristic to warn about possible data type issues
     models = re.finditer(r'model\s+(\w+)\s*{([^}]*)}', llm_output, re.DOTALL)
+    
+    # Collect models and their relations for validation
+    model_relations = {}
+    
     for model_match in models:
         model_name = model_match.group(1)
         model_body = model_match.group(2)
@@ -55,6 +59,76 @@ def _validate_prisma_schema_output(llm_output: str) -> Tuple[bool, Optional[str]
             field_type = field_match.group(2)
             logger.warning(f"Potential data load risk: Field '{field_name}' in model '{model_name}' is non-nullable {field_type}")
             logger.warning(f"Consider making '{field_name}' nullable (add '?') if CSV might contain empty values or conversion errors")
+        
+        # Extract relations for bidirectional validation
+        relations = []
+        relation_matches = re.finditer(r'\s*(\w+)\s+(\w+)\s+@relation\(fields:\s*\[([^\]]+)\],\s*references:\s*\[([^\]]+)\]\)', model_body)
+        
+        for rel_match in relation_matches:
+            field_name = rel_match.group(1)
+            target_model = rel_match.group(2)
+            source_field = rel_match.group(3).strip()
+            target_field = rel_match.group(4).strip()
+            
+            relations.append({
+                'field': field_name,
+                'target_model': target_model,
+                'source_field': source_field,
+                'target_field': target_field
+            })
+        
+        # Also look for array relation fields (e.g., sales Sales[])
+        array_relation_matches = re.finditer(r'\s*(\w+)\s+(\w+)\[\]', model_body)
+        
+        for arr_rel_match in array_relation_matches:
+            field_name = arr_rel_match.group(1)
+            target_model = arr_rel_match.group(2)
+            
+            relations.append({
+                'field': field_name,
+                'target_model': target_model,
+                'is_array': True
+            })
+        
+        model_relations[model_name] = relations
+    
+    # Validate bidirectional relations
+    missing_relations = []
+    for model_name, relations in model_relations.items():
+        for relation in relations:
+            if relation.get('is_array', False):
+                # This is the "many" side - check if there's a matching "one" side
+                target_model = relation['target_model']
+                target_relations = model_relations.get(target_model, [])
+                    
+                # Check if target model has a relation back to this model
+                has_reverse = any(
+                    rel.get('target_model') == model_name and not rel.get('is_array', False)
+                    for rel in target_relations
+                )
+                    
+                if not has_reverse:
+                    missing_relations.append(f"Model {target_model} is missing a relation back to {model_name}")
+                
+            elif 'source_field' in relation:
+                # This is the "one" side - check if there's a matching "many" side
+                target_model = relation['target_model']
+                target_relations = model_relations.get(target_model, [])
+                    
+                # Check if target model has an array relation back to this model
+                has_reverse = any(
+                    rel.get('target_model') == model_name and rel.get('is_array', False)
+                    for rel in target_relations
+                )
+                    
+                if not has_reverse:
+                    missing_relations.append(f"Model {target_model} is missing a relation back to {model_name}")
+        
+    if missing_relations:
+        logger.warning(f"Schema has missing bidirectional relations: {', '.join(missing_relations)}")
+        logger.warning("Adding a comment to the schema to alert the user")
+            
+        # We won't fail validation but will add a warning to the schema itself
             
     logger.info("Basic validation of schema output passed.")
     return True, None
@@ -98,6 +172,158 @@ def _extract_prisma_schema_from_llm(raw_response: str) -> str:
     
     logger.warning("No markdown block detected in schema suggestion. Using cleaned response.")
     return cleaned_response
+
+def _fix_missing_relations(schema_content: str) -> str:
+    """
+    Analyzes a Prisma schema for missing bidirectional relations and attempts to fix them.
+    
+    Args:
+        schema_content: The original Prisma schema string
+        
+    Returns:
+        Fixed schema with bidirectional relations added where missing
+    """
+    logger.info("Checking and fixing missing bidirectional relations in schema...")
+    
+    # Extract all model blocks
+    models = {}
+    model_matches = re.finditer(r'model\s+(\w+)\s*{([^}]*)}', schema_content, re.DOTALL)
+    
+    for model_match in model_matches:
+        model_name = model_match.group(1)
+        model_body = model_match.group(2)
+        models[model_name] = model_body
+    
+    fixed_models = {}
+    
+    # First pass: collect all relation information
+    relations = {}
+    for model_name, model_body in models.items():
+        model_relations = []
+        
+        # Find @relation fields (one-to-many, from the "one" side)
+        relation_matches = re.finditer(
+            r'\s*(\w+)\s+(\w+)\s+@relation\(fields:\s*\[([^\]]+)\],\s*references:\s*\[([^\]]+)\]\)', 
+            model_body
+        )
+        
+        for rel_match in relation_matches:
+            field_name = rel_match.group(1)
+            target_model = rel_match.group(2)
+            source_field = rel_match.group(3).strip()
+            target_field = rel_match.group(4).strip()
+            
+            model_relations.append({
+                'field': field_name,
+                'target_model': target_model,
+                'source_field': source_field,
+                'target_field': target_field,
+                'type': 'one'
+            })
+        
+        # Find array relation fields (from the "many" side)
+        array_relation_matches = re.finditer(r'\s*(\w+)\s+(\w+)\[\]', model_body)
+        
+        for arr_rel_match in array_relation_matches:
+            field_name = arr_rel_match.group(1)
+            target_model = arr_rel_match.group(2)
+            
+            model_relations.append({
+                'field': field_name,
+                'target_model': target_model,
+                'type': 'many'
+            })
+        
+        relations[model_name] = model_relations
+    
+    # Second pass: find and fix missing relations
+    for model_name, model_relations in relations.items():
+        for relation in model_relations:
+            target_model = relation['target_model']
+            
+            # Skip if target model doesn't exist
+            if target_model not in relations:
+                logger.warning(f"Target model {target_model} for relation in {model_name} not found in schema")
+                continue
+            
+            target_relations = relations[target_model]
+            
+            # Check if there's a reverse relation
+            has_reverse = any(
+                rel['target_model'] == model_name 
+                for rel in target_relations
+            )
+            
+            if not has_reverse:
+                # Need to add a reverse relation
+                logger.info(f"Adding missing reverse relation from {target_model} to {model_name}")
+                
+                if relation['type'] == 'one':
+                    # Add a "many" relation to the target model
+                    # Generate a reasonable field name based on model name (lowercase plural)
+                    field_name = model_name.lower()
+                    if not field_name.endswith('s'):
+                        field_name = f"{field_name}s"
+                    
+                    # Check field name doesn't already exist
+                    field_pattern = re.compile(fr'\s*{field_name}\s+')
+                    if field_pattern.search(models[target_model]):
+                        # Try alternatives like items, entries, etc.
+                        alternatives = [f"{model_name.lower()}Items", f"{model_name.lower()}Entries", f"{model_name.lower()}Records"]
+                        for alt in alternatives:
+                            alt_pattern = re.compile(fr'\s*{alt}\s+')
+                            if not alt_pattern.search(models[target_model]):
+                                field_name = alt
+                                break
+                    
+                    # Add new relation field at the end of the model body, before the closing brace
+                    new_field = f"\n  {field_name} {model_name}[]"
+                    
+                    # Update the model body
+                    if '}' in models[target_model]:
+                        fixed_models[target_model] = models[target_model].replace('}', f"{new_field}\n}}")
+                    else:
+                        fixed_models[target_model] = f"{models[target_model]}{new_field}\n"
+                
+                elif relation['type'] == 'many':
+                    # We need source and target fields for @relation
+                    # This is trickier without knowing the exact relation
+                    # For now, let's log a warning and add a comment
+                    logger.warning(f"Cannot automatically add one-side relation from {target_model} to {model_name} without field information")
+                    comment = f"\n  // TODO: Add reverse relation to {model_name}"
+                    
+                    # Update the model body
+                    if target_model not in fixed_models:
+                        fixed_models[target_model] = models[target_model]
+                    
+                    if '}' in fixed_models[target_model]:
+                        fixed_models[target_model] = fixed_models[target_model].replace('}', f"{comment}\n}}")
+                    else:
+                        fixed_models[target_model] = f"{fixed_models[target_model]}{comment}\n"
+    
+    # Copy any models that weren't modified
+    for model_name, model_body in models.items():
+        if model_name not in fixed_models:
+            fixed_models[model_name] = model_body
+    
+    # Reconstruct the schema
+    fixed_schema = schema_content
+    for model_name, fixed_body in fixed_models.items():
+        # Replace the model body
+        pattern = re.compile(f'model\\s+{model_name}\\s*{{([^}}]*?)}}', re.DOTALL)
+        fixed_schema = pattern.sub(f'model {model_name} {{{fixed_body}}}', fixed_schema)
+    
+    # Add warning comment if we made changes
+    if fixed_models:
+        warning = """
+// WARNING: Missing bidirectional relations were automatically added.
+// Please review the schema carefully before applying.
+"""
+        # Add comment after generator block
+        generator_pattern = re.compile(r'(generator\s+client\s*{[^}]*})', re.DOTALL)
+        fixed_schema = generator_pattern.sub(f'\\1\n{warning}', fixed_schema)
+    
+    return fixed_schema
 
 
 def suggest_schema_from_csvs(csv_paths: List[Union[str, Path]]) -> Optional[str]:
@@ -163,8 +389,11 @@ model DefaultTable {
             logger.warning("Using default schema template as fallback")
             return default_schema
 
+        # Fix any missing bidirectional relations
+        fixed_schema = _fix_missing_relations(suggested_schema)
+        
         # Add warning comments about potential nullable fields to the schema
-        suggested_schema_lines = suggested_schema.splitlines()
+        suggested_schema_lines = fixed_schema.splitlines()
         warning_comment = """
 // WARNING: CSV DATA LOADING CONSIDERATIONS
 // If your CSV files contain empty values or strings that can't be converted to numbers,
@@ -181,10 +410,10 @@ model DefaultTable {
         if model_index > 0:
             # Insert warning before the first model
             suggested_schema_lines.insert(model_index, warning_comment)
-            suggested_schema = "\n".join(suggested_schema_lines)
+            fixed_schema = "\n".join(suggested_schema_lines)
 
         logger.info("Successfully generated and validated schema suggestion.")
-        return suggested_schema
+        return fixed_schema
 
     except Exception as e:
         logger.error(f"Schema suggestion failed: {e}")

@@ -160,7 +160,12 @@ RULES:
 3. Infer appropriate Prisma data types compatible with SQLite: `String`, `Int`, `Float`, `Boolean`, `DateTime`. Be conservative: use `String` if type is ambiguous, mixed, or format is unclear. For dates/times, suggest `DateTime` if format looks standard (like ISO 8601 or YYYY-MM-DD HH:MM:SS), otherwise use `String`.
 4. Identify potential primary keys (usually columns named 'id', 'xxx_id'). Mark the best candidate with `@id @default(autoincrement())` if it looks like a sequential integer, or just `@id` if it's another type (like a string UUID - though less common in CSVs). If no clear ID exists, let Prisma handle it or don't add `@id`.
 5. Identify potential optional fields (columns with empty strings or many missing values in samples) and mark the type with `?` (e.g., `String?`).
-6. Attempt to infer relationships between tables based on matching column names (e.g., `product_id` in `Sales` likely relates to `product_id` in `Products`). Define these using `@relation` attribute. Specify both sides of the relation if possible.
+6. For relationships between tables: ALWAYS define BOTH sides of every relation:
+   - When table A references table B (e.g., with a column like product_id), define:
+     a) In table A: Include a relation field TO table B (e.g., `product Products @relation(fields: [productId], references: [productId])`)
+     b) In table B: Include a matching relation field back TO table A (e.g., `sales Sales[]`) that references table A
+   - This bidirectional relationship is REQUIRED by Prisma, not optional
+   - For one-to-many relationships (most common in CSV data), use type syntax with [] on the "many" side (e.g., `sales Sales[]`)
 7. Format the output STRICTLY as the content of a `schema.prisma` file.
 8. Include the standard `datasource db` block for SQLite, pointing to `env("DATABASE_URL")`.
 9. Include the standard `generator client` block specifying `provider = "prisma-client-py"`.
