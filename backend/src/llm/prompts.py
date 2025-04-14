@@ -155,7 +155,7 @@ Analyze the following CSV samples (headers and first few data rows) provided by 
 Your goal is to generate a *suggested* `schema.prisma` file content.
 
 RULES:
-1. Infer table names from the filenames (e.g., 'sales.csv' -> model Sales). Use PascalCase for model names. Use `@@map("original_filename_base")` if the table name should differ from the model name.
+1. Infer table names from the filenames (e.g., 'sales.csv' -> model Sales). Use PascalCase for model names. ALWAYS include `@@map("original_filename_base")` to ensure the actual table name matches the CSV filename base exactly.
 2. Infer column names from the CSV headers. Use camelCase or snake_case for field names. Use `@map("Original Header")` if the field name significantly differs from the header.
 3. Infer appropriate Prisma data types compatible with SQLite: `String`, `Int`, `Float`, `Boolean`, `DateTime`. Be conservative: use `String` if type is ambiguous, mixed, or format is unclear. For dates/times, suggest `DateTime` if format looks standard (like ISO 8601 or YYYY-MM-DD HH:MM:SS), otherwise use `String`.
 4. Identify potential primary keys (usually columns named 'id', 'xxx_id'). Mark the best candidate with `@id @default(autoincrement())` if it looks like a sequential integer, or just `@id` if it's another type (like a string UUID - though less common in CSVs). If no clear ID exists, let Prisma handle it or don't add `@id`.
@@ -165,6 +165,7 @@ RULES:
 8. Include the standard `datasource db` block for SQLite, pointing to `env("DATABASE_URL")`.
 9. Include the standard `generator client` block specifying `provider = "prisma-client-py"`.
 10. Do NOT include any explanations, apologies, or text outside the schema definition itself. This output will be saved directly to a file.
+11. IMPORTANT: ALWAYS include `@@map("filename_base")` for every model to ensure exact table name matching with original CSV names. Example: for customers.csv, use: @@map("customers")
 
 CSV SAMPLES:
 {all_samples_text}

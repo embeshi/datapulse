@@ -128,11 +128,46 @@ def setup_prisma_schema():
         # Import the loader here to avoid circular imports
         from src.data_handling.loader import load_multiple_csvs_to_sqlite
         
-        # Create a mapping from CSV files to table names (infer table name from file name)
+        # Create a mapping from CSV files to table names using proper casing from Prisma schema
+        # Extract table mapping info from generated schema
+        table_mappings = {}
+        schema_text = output_path.read_text()
+        
+        # Look for both model blocks and their @@map directives to get correct table names
+        model_matches = re.finditer(r'model\s+(\w+)\s*{([^}]*)}', schema_text, re.DOTALL)
+        for model_match in model_matches:
+            model_name = model_match.group(1)  # PascalCase model name
+            model_body = model_match.group(2)
+            
+            # Check if there's a @@map directive
+            map_match = re.search(r'@@map\("([^"]+)"\)', model_body)
+            if map_match:
+                actual_table_name = map_match.group(1)
+            else:
+                # If no @@map, the actual table name is the model name (Prisma default)
+                actual_table_name = model_name
+            
+            # Store both versions for flexible matching
+            table_mappings[model_name.lower()] = actual_table_name
+            table_mappings[actual_table_name.lower()] = actual_table_name
+        
+        logger.info(f"Extracted table mappings from schema: {table_mappings}")
+        
+        # Create a mapping from CSV files to correct table names
         csv_mapping = {}
         for csv_path in csv_paths:
-            # Extract the base name without extension as the table name
-            table_name = Path(csv_path).stem.lower()
+            # Extract the base name without extension as potential table name
+            base_name = Path(csv_path).stem.lower()
+            
+            # Use the correct table name from mappings if available, otherwise use base name
+            if base_name in table_mappings:
+                table_name = table_mappings[base_name]
+                logger.info(f"Mapping CSV {csv_path} to table '{table_name}' based on schema")
+            else:
+                # If we can't find a mapping, use the original name but log a warning
+                table_name = base_name
+                logger.warning(f"Could not find table mapping for {base_name}, using as-is")
+            
             csv_mapping[table_name] = str(csv_path)
         
         # Create a database URI for SQLAlchemy

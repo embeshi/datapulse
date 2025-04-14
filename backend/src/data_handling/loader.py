@@ -1,5 +1,6 @@
 import pandas as pd
 import sqlalchemy
+import traceback
 from pathlib import Path
 from typing import Union, Dict, List, Optional, Tuple, Any
 import logging
