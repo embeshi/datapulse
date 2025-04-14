@@ -106,20 +106,32 @@ def execute_prisma_raw_sql_sync(sql_query: str) -> Tuple[List[Dict[str, Any]], O
     logger.info(f"Executing SQL query via Prisma (sync): {sql_query[:100]}...")
     
     try:
-        # Run the async function in an event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Check if we're already in an event loop
         try:
-            results, error = loop.run_until_complete(execute_prisma_raw_sql_async(sql_query))
-        finally:
-            loop.close()
-            
-        return results, error
+            loop = asyncio.get_running_loop()
+            # We're already in an event loop - use SQLite CLI fallback
+            logger.warning("Already in an event loop, using SQLite CLI fallback")
+            return execute_sqlite_cli_sql(sql_query)
+        except RuntimeError:
+            # No running event loop, we can create one safely
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                results, error = loop.run_until_complete(execute_prisma_raw_sql_async(sql_query))
+                return results, error
+            finally:
+                loop.close()
         
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error executing query (sync wrapper): {error_msg}")
-        return [], error_msg
+        # Try the fallback if the main execution fails
+        logger.info("Attempting fallback to SQLite CLI execution")
+        try:
+            return execute_sqlite_cli_sql(sql_query)
+        except Exception as fallback_e:
+            logger.error(f"Fallback execution also failed: {fallback_e}")
+            return [], f"{error_msg} (Fallback also failed: {fallback_e})"
 
 # Fallback using sqlite3 command-line if prisma isn't working
 def execute_sqlite_cli_sql(sql_query: str, db_path: str = "analysis.db") -> Tuple[List[Dict[str, Any]], Optional[str]]:
