@@ -197,7 +197,19 @@ def get_prisma_database_context_string(db_uri: str, schema_path: Path = Path("pr
                 if any('@id' in attr for attr in field['attributes']):
                     sqlite_type += " PRIMARY KEY"
                 
-                fields_info.append(f"{field['name']} ({sqlite_type})")
+                # Check for @map attribute to find actual DB column name
+                db_column_name = field['name']  # Default to field name
+                for attr in field['attributes']:
+                    map_match = re.search(r'@map\("([^"]+)"\)', attr)
+                    if map_match:
+                        db_column_name = map_match.group(1)
+                        break
+                
+                # Show both Prisma field name and actual DB column name when they differ
+                if db_column_name != field['name']:
+                    fields_info.append(f"{db_column_name} ({sqlite_type}) [Prisma: {field['name']}]")
+                else:
+                    fields_info.append(f"{db_column_name} ({sqlite_type})")
             
             cols_str = ", ".join(fields_info)
             context_parts.append(f"  Schema Columns: {cols_str}")
