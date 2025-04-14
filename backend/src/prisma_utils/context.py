@@ -5,6 +5,7 @@ from typing import Dict, List, Any, Optional, Tuple
 import sqlalchemy
 
 from src.data_handling.db_utils import get_sqlalchemy_engine, get_table_summary
+from src.prisma_utils.analysis_loader import load_analysis_data, format_analysis_for_context
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,11 @@ def get_prisma_database_context_string(db_uri: str, schema_path: Path = Path("pr
         # Get engine for data summaries
         engine = get_sqlalchemy_engine(db_uri)
         
+        # Load analysis data if available
+        logger.info("Loading dataset analysis data...")
+        analysis_data = load_analysis_data()
+        logger.info(f"Loaded analysis data for {len(analysis_data)} tables")
+        
         # Build context string with both schema info and data summaries
         context_parts = []
         context_parts.append("Database Context:")
@@ -165,6 +171,13 @@ def get_prisma_database_context_string(db_uri: str, schema_path: Path = Path("pr
         for model_name, model_info in schema_data['models'].items():
             table_name = model_info['table_name']
             context_parts.append(f"\n--- Table: {table_name} (Model: {model_name}) ---")
+            
+            # Add enriched analysis data if available
+            if table_name in analysis_data:
+                logger.info(f"Including analysis data for {table_name}")
+                formatted_analysis = format_analysis_for_context(analysis_data[table_name])
+                if formatted_analysis:
+                    context_parts.append(formatted_analysis)
             
             # Generate a simple description based on the model name and relations
             model_description = _generate_model_description(model_name, model_info)

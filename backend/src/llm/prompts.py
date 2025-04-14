@@ -92,9 +92,15 @@ CRITICAL INSTRUCTIONS:
 1. ONLY use tables and columns that explicitly appear in the DATABASE CONTEXT above.
 2. When the context shows a column with both a database name and a Prisma name like "product_id (INTEGER) [Prisma: productId]", 
    ALWAYS use the database column name (product_id) in your SQL queries, NOT the Prisma field name.
-3. DO NOT assume or infer the existence of any tables not listed in the DATABASE CONTEXT.
-4. If the plan assumes tables that don't exist in the context, modify your approach to work with ONLY the available tables.
-5. If you cannot fulfill the request with the available tables, return a clear error message as a SQL comment: "-- ERROR: Cannot complete request. Required table X is missing."
+3. Pay close attention to the analysis data which provides column descriptions, data types, distributions, 
+   and sample values. Use this information to write more accurate queries by:
+   - Choosing appropriate JOIN types based on null count percentages
+   - Setting proper filter conditions based on actual data ranges and sample values
+   - Optimizing queries by leveraging column cardinality information
+   - Handling potential null values appropriately
+4. DO NOT assume or infer the existence of any tables not listed in the DATABASE CONTEXT.
+5. If the plan assumes tables that don't exist in the context, modify your approach to work with ONLY the available tables.
+6. If you cannot fulfill the request with the available tables, return a clear error message as a SQL comment: "-- ERROR: Cannot complete request. Required table X is missing."
 
 Generate the SQLite SQL query that accurately implements the conceptual plan.
 IMPORTANT: Output ONLY the SQL query string, without any explanation, comments,
