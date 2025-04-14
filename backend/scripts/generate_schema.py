@@ -9,6 +9,7 @@ import traceback
 from pathlib import Path
 import subprocess
 import argparse
+from src.data_handling.dataset_analysis import prompt_and_analyze_datasets
 
 # Add the parent directory to the Python path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -184,6 +185,14 @@ def setup_prisma_schema():
             failed_tables = [table for table, success in results.items() if not success]
             logger.warning(f"Some tables failed to load: {failed_tables}")
             print(f"\nWARNING: Some tables failed to load: {failed_tables}")
+        
+        # After loading data, prompt for dataset analysis
+        if any(results.values()):  # Only if some tables were loaded successfully
+            try:
+                prompt_and_analyze_datasets(csv_mapping)
+            except Exception as e:
+                logger.error(f"Error during dataset analysis: {e}")
+                logger.error(traceback.format_exc())
     
     except Exception as e:
         logger.error(f"Error loading data into the database: {e}")

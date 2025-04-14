@@ -4,6 +4,7 @@ import traceback
 from pathlib import Path
 from typing import Union, Dict, List, Optional, Tuple, Any
 import logging
+from src.data_handling.dataset_analysis import prompt_and_analyze_datasets
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -113,6 +114,10 @@ def load_multiple_csvs_to_sqlite(
             # This would require schema modification after initial table creation
         except Exception as e:
             logger.error(f"Error during relationship inference: {e}")
+    
+    # Prompt for dataset analysis after loading
+    if any(results.values()):  # Only prompt if at least one table was loaded successfully
+        prompt_and_analyze_datasets(csv_mapping)
     
     # Return status for each table
     success_count = sum(1 for success in results.values() if success)
