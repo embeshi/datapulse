@@ -36,6 +36,11 @@ def load_csv_to_sqlite(csv_path: Union[str, Path], db_uri: str, table_name: str)
              # Decide if empty CSV should create empty table or raise error
              # raise pd.errors.EmptyDataError(f"CSV file is empty: {csv_path}") # Option to raise
 
+        # Basic preprocessing: Convert pandas NaNs/NaTs to None for SQLite compatibility
+        # This helps prevent errors if schema defines columns as non-nullable for types
+        # where pandas uses specific sentinels (like NaT for datetime).
+        df = df.astype(object).where(pd.notnull(df), None)
+
     except pd.errors.EmptyDataError as e:
          logger.error(f"Pandas EmptyDataError reading {csv_path}: {e}")
          raise
@@ -52,9 +57,12 @@ def load_csv_to_sqlite(csv_path: Union[str, Path], db_uri: str, table_name: str)
         logger.info(f"Successfully loaded data from {csv_path} to table '{table_name}' in {db_uri}")
     except sqlalchemy.exc.SQLAlchemyError as e:
         logger.error(f"SQLAlchemyError writing to database {db_uri}, table '{table_name}': {e}")
-        raise
+        logger.error(f"This often happens due to data type mismatches between CSV data and the database schema defined by Prisma.")
+        logger.error(traceback.format_exc())
+        raise Exception(f"Failed to load data into '{table_name}' due to DB error (check types/constraints).") from e
     except Exception as e:
         logger.error(f"Unexpected error writing to database: {e}")
+        logger.error(traceback.format_exc())
         raise
 
 def load_multiple_csvs_to_sqlite(

@@ -9,29 +9,55 @@ from src.llm import client, prompts
 
 logger = logging.getLogger(__name__)
 
-def _validate_prisma_schema_output(llm_output: str) -> bool:
-    """Performs basic checks on the LLM output for Prisma schema syntax."""
+def _validate_prisma_schema_output(llm_output: str) -> Tuple[bool, Optional[str]]:
+    """
+    Performs basic checks on the LLM output for Prisma schema syntax.
+    
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
     if not llm_output or not llm_output.strip():
         logger.error("LLM returned empty schema suggestion.")
-        return False
+        return False, "Empty schema suggestion"
+    
     # Check for essential blocks (can be improved with more robust parsing/regex)
     if "datasource db" not in llm_output:
         logger.error("LLM output missing 'datasource db' block.")
-        return False
+        return False, "Missing 'datasource db' block"
+        
     if "generator client" not in llm_output:
         logger.error("LLM output missing 'generator client' block.")
-        return False
+        return False, "Missing 'generator client' block"
+        
     if "model " not in llm_output: # Needs at least one model
         logger.error("LLM output missing 'model' definition block.")
-        return False
+        return False, "Missing model definition block"
+    
     # Check for common LLM explanation patterns outside comments
     lines = llm_output.strip().splitlines()
     non_comment_lines = [line for line in lines if not line.strip().startswith(("//", "#"))]
+    
     if not non_comment_lines[0].lower().startswith(("datasource", "generator", "//", "#")):
          logger.warning("LLM output might contain leading non-schema text.")
          # Could attempt to trim here, but risky. Rely on prompt for now.
+    
+    # Check for potentially dangerous types where nullable might be required
+    # This is a heuristic to warn about possible data type issues
+    models = re.finditer(r'model\s+(\w+)\s*{([^}]*)}', llm_output, re.DOTALL)
+    for model_match in models:
+        model_name = model_match.group(1)
+        model_body = model_match.group(2)
+        
+        # Look for non-nullable fields (no question mark) of types that might cause loading issues
+        risky_fields = re.finditer(r'\s*(\w+)\s+(Int|Float|DateTime)\s+(?!\?)', model_body)
+        for field_match in risky_fields:
+            field_name = field_match.group(1)
+            field_type = field_match.group(2)
+            logger.warning(f"Potential data load risk: Field '{field_name}' in model '{model_name}' is non-nullable {field_type}")
+            logger.warning(f"Consider making '{field_name}' nullable (add '?') if CSV might contain empty values or conversion errors")
+            
     logger.info("Basic validation of schema output passed.")
-    return True
+    return True, None
 
 def _extract_prisma_schema_from_llm(raw_response: str) -> str:
     """Extracts schema content, attempting to remove markdown fences."""
@@ -129,12 +155,33 @@ model DefaultTable {
         # Log the extracted schema for debugging
         logger.debug(f"Extracted schema (first 500 chars): {suggested_schema[:500]}...")
 
-        if not _validate_prisma_schema_output(suggested_schema):
-            logger.error("LLM generated schema failed basic validation.")
+        is_valid, error_msg = _validate_prisma_schema_output(suggested_schema)
+        if not is_valid:
+            logger.error(f"LLM generated schema failed basic validation: {error_msg}")
             logger.debug(f"Invalid schema attempt:\n{suggested_schema}")
             # Return default schema as fallback
             logger.warning("Using default schema template as fallback")
             return default_schema
+
+        # Add warning comments about potential nullable fields to the schema
+        suggested_schema_lines = suggested_schema.splitlines()
+        warning_comment = """
+// WARNING: CSV DATA LOADING CONSIDERATIONS
+// If your CSV files contain empty values or strings that can't be converted to numbers,
+// consider making fields nullable (add ? to type) or use String type instead of Int/Float
+// for fields that might have mixed content.
+"""
+        # Find where to insert the warning (after generator block, before first model)
+        model_index = -1
+        for i, line in enumerate(suggested_schema_lines):
+            if line.strip().startswith("model "):
+                model_index = i
+                break
+        
+        if model_index > 0:
+            # Insert warning before the first model
+            suggested_schema_lines.insert(model_index, warning_comment)
+            suggested_schema = "\n".join(suggested_schema_lines)
 
         logger.info("Successfully generated and validated schema suggestion.")
         return suggested_schema
