@@ -115,10 +115,6 @@ def load_multiple_csvs_to_sqlite(
         except Exception as e:
             logger.error(f"Error during relationship inference: {e}")
     
-    # Prompt for dataset analysis after loading
-    if any(results.values()):  # Only prompt if at least one table was loaded successfully
-        prompt_and_analyze_datasets(csv_mapping)
-    
     # Return status for each table
     success_count = sum(1 for success in results.values() if success)
     logger.info(f"Completed batch load: {success_count}/{len(csv_mapping)} tables loaded successfully")
