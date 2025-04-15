@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import logging
 
 from src.api.models import (
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 DB_URI = "sqlite:///analysis.db"
 
 @router.post("/analyze", 
-             response_model=Dict[str, Any],
+             response_model=Union[GeneratedSQLResponse, SuggestionResponse, ErrorResponse],
              responses={
                  200: {"description": "SQL generated or insights provided"},
                  400: {"description": "Bad request"},
@@ -81,7 +81,7 @@ async def analyze(request: AnalysisRequest):
         return ErrorResponse(error=f"Analysis failed: {str(e)}")
 
 @router.post("/execute", 
-             response_model=Dict[str, Any],
+             response_model=Union[AnalysisResultResponse, ErrorResponse],
              responses={
                  200: {"description": "SQL executed successfully"},
                  400: {"description": "Bad request"},
