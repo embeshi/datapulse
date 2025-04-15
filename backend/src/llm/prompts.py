@@ -370,20 +370,21 @@ generator client {{
     # The ```prisma block helps guide the LLM output format
     return prompt.strip()
 
-def get_insight_suggestion_prompt(database_context: str) -> str:
+def get_insight_suggestion_prompt(user_request: str, database_context: str) -> str:
     """
     Generates the prompt for suggesting potential analyses and insights
-    based on the database structure and content.
+    based on the database structure and content and user query.
 
     Args:
+        user_request: The user's original natural language query
         database_context: String containing schema and data summaries.
 
     Returns:
         The formatted prompt string.
     """
     prompt = f"""
-You are a senior data analyst providing analytical guidance to a business user.
-Based ONLY on the provided database context (schema, relationships, summaries),
+As a senior data analyst providing analytical guidance to a business user who asked: "{user_request}"
+Based on both this request and the provided database context (schema, relationships, summaries),
 suggest 5-7 specific and actionable analytical questions or insights that could 
 be investigated using this data.
 
