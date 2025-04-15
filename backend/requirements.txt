@@ -1,0 +1,27 @@
+# Core dependencies
+sqlalchemy>=2.0.0
+pandas>=2.0.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# LLM Integration
+openai>=1.0.0
+# Alternative LLM libraries (commented out by default)
+# anthropic>=0.5.0
+# google-generativeai>=0.3.0
+
+# API & Web
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+
+# Database
+prisma-client-py>=0.9.0
+
+# Development & Testing
+pytest>=7.3.0
+faker>=18.0.0
+httpx>=0.24.0  # For async HTTP and testing
+
+# Utilities
+sqlparse>=0.4.4  # For SQL parsing/validation
