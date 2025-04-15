@@ -73,6 +73,16 @@ async def main():
             
             sys.exit(1)
         
+        # Check if this is an insights/exploratory request
+        if 'insights' in initiation_result:
+            logger.info("Exploratory request detected - displaying insights")
+            print("\n=== SUGGESTED ANALYSIS & INSIGHTS ===")
+            print("-" * 60)
+            print(initiation_result['insights'])
+            print("-" * 60)
+            print("\nTo execute any of these analyses, please submit a specific query.")
+            sys.exit(0)
+        
         session_id = initiation_result['session_id']
         generated_sql = initiation_result['generated_sql']
         

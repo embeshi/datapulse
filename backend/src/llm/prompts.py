@@ -370,6 +370,62 @@ generator client {{
     # The ```prisma block helps guide the LLM output format
     return prompt.strip()
 
+def get_insight_suggestion_prompt(database_context: str) -> str:
+    """
+    Generates the prompt for suggesting potential analyses and insights
+    based on the database structure and content.
+
+    Args:
+        database_context: String containing schema and data summaries.
+
+    Returns:
+        The formatted prompt string.
+    """
+    prompt = f"""
+You are a senior data analyst providing analytical guidance to a business user.
+Based ONLY on the provided database context (schema, relationships, summaries),
+suggest 5-7 specific and actionable analytical questions or insights that could 
+be investigated using this data.
+
+DATABASE CONTEXT:
+{database_context}
+
+When formulating your suggestions:
+
+1. FOCUS ON HIGH-VALUE INSIGHTS:
+   - Business performance metrics (trends, comparisons, outliers)
+   - Relationship patterns between entities
+   - Anomaly detection and quality issues
+   - Optimization opportunities
+
+2. LEVERAGE DATA CHARACTERISTICS:
+   - Use data type information for appropriate analyses
+   - Consider null percentages when suggesting aggregations
+   - Leverage unique counts to determine appropriate groupings
+   - Use min/max/distribution information to suggest meaningful thresholds
+   - Incorporate sample values for realistic filter examples
+
+3. BE SPECIFIC AND ACTIONABLE:
+   - Phrase as direct questions that SQL can answer
+   - Include specific columns and tables in your suggestions
+   - Suggest specific comparison points where appropriate
+   - Include time periods if date columns exist
+
+4. FORMAT PROPERLY:
+   - Number each suggestion (1-7)
+   - Provide a brief explanation of the business value after each question
+   - Group related insights together
+   - Order from most to least important
+
+REMEMBER:
+- Only suggest analyses possible with the available data
+- Do not reference tables or columns not in the database context
+- Focus on practical insights, not just technical descriptions
+
+INSIGHT SUGGESTIONS:
+"""
+    return prompt.strip()
+
 # Example Usage
 if __name__ == "__main__":
 

@@ -25,6 +25,7 @@ logger.warning("Using basic in-memory WORKFLOW_STATE_STORE. State will be lost o
 def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
     """
     Starts the analysis workflow: gets context, plans, validates plan, generates SQL.
+    For exploratory requests, generates insight suggestions instead.
     Stores intermediate state associated with a new session ID.
 
     Args:
@@ -33,6 +34,7 @@ def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
 
     Returns:
         Dictionary {'session_id': str, 'generated_sql': str} on success.
+        Dictionary {'insights': str} for exploratory requests.
         Dictionary {'error': str} on failure.
     """
     session_id = uuid.uuid4().hex
@@ -44,9 +46,33 @@ def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
         if db_context.startswith("Error:") : # Check if context generation failed
              raise ValueError(f"Failed to get database context: {db_context}")
 
-        # Log initial step (using simple print for now, replace with history manager later)
+        # Determine if this is an exploratory/insight request
+        from src.utils.intent_classifier import classify_user_intent
+        intent, confidence = classify_user_intent(user_request)
+        
+        # Log initial step
         print(f"[History Stub - {session_id}] Step: Request Received - Input: {user_request}")
-
+        logger.info(f"Request classified as {intent} (confidence: {confidence:.2f})")
+        
+        if intent == "exploratory":
+            # Handle exploratory request - generate insights instead of SQL
+            print(f"[History Stub - {session_id}] Step: Exploratory Request Detected - Confidence: {confidence:.2f}")
+            
+            # Generate insights/suggestions using the planner in insights mode
+            suggestions = planner.run_planner(user_request, db_context, mode="insights")
+            print(f"[History Stub - {session_id}] Step: Insights Generated - Output:\n{suggestions}")
+            
+            # Store minimal state since we're not proceeding to SQL generation
+            WORKFLOW_STATE_STORE[session_id] = {
+                'user_request': user_request,
+                'request_type': 'exploratory',
+                'insights': suggestions
+            }
+            
+            logger.info(f"Stored insights in state for session_id: {session_id}")
+            return {'insights': suggestions, 'session_id': session_id}
+        
+        # Standard analysis flow for specific requests
         # Generate initial plan
         initial_plan = planner.run_planner(user_request, db_context)
         print(f"[History Stub - {session_id}] Step: Initial Plan Generated - Output:\n{initial_plan}")
@@ -79,6 +105,7 @@ def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
         # Store state needed for the execution step
         WORKFLOW_STATE_STORE[session_id] = {
             'user_request': user_request,
+            'request_type': 'specific',
             # 'db_context': db_context, # Avoid storing potentially large context
             'initial_plan': initial_plan,
             'final_plan': final_plan,
@@ -184,6 +211,7 @@ def execute_approved_analysis(session_id: str, approved_sql: str) -> Dict[str, A
 async def initiate_analysis_async(user_request: str, db_uri: str) -> Dict[str, Any]:
     """
     Starts analysis: gets Prisma context, plans, validates plan, generates SQL (async compatible).
+    For exploratory requests, generates insight suggestions instead.
     Stores state associated with a new session ID.
     """
     session_id = uuid.uuid4().hex
@@ -195,8 +223,33 @@ async def initiate_analysis_async(user_request: str, db_uri: str) -> Dict[str, A
         if db_context.startswith("Error:"):
             raise ValueError(f"Failed to get database context: {db_context}")
 
+        # Determine if this is an exploratory/insight request
+        from src.utils.intent_classifier import classify_user_intent
+        intent, confidence = classify_user_intent(user_request)
+        
+        # Log initial step
         print(f"[History Stub - {session_id}] Step: Request Received - Input: {user_request}")
+        logger.info(f"Request classified as {intent} (confidence: {confidence:.2f})")
+        
+        if intent == "exploratory":
+            # Handle exploratory request - generate insights instead of SQL
+            print(f"[History Stub - {session_id}] Step: Exploratory Request Detected - Confidence: {confidence:.2f}")
+            
+            # Generate insights/suggestions using the planner in insights mode
+            suggestions = planner.run_planner(user_request, db_context, mode="insights")
+            print(f"[History Stub - {session_id}] Step: Insights Generated - Output:\n{suggestions}")
+            
+            # Store minimal state since we're not proceeding to SQL generation
+            WORKFLOW_STATE_STORE[session_id] = {
+                'user_request': user_request,
+                'request_type': 'exploratory',
+                'insights': suggestions
+            }
+            
+            logger.info(f"Stored insights in state for session_id: {session_id}")
+            return {'insights': suggestions, 'session_id': session_id}
 
+        # Standard analysis flow for specific requests
         # Generate initial plan (agent calls are assumed sync here, wrapping sync llm client call)
         initial_plan = planner.run_planner(user_request, db_context)
         print(f"[History Stub - {session_id}] Step: Initial Plan Generated - Output:\n{initial_plan}")
@@ -209,7 +262,13 @@ async def initiate_analysis_async(user_request: str, db_uri: str) -> Dict[str, A
         
         if not is_feasible:
             print(f"[History Stub - {session_id}] Step: Plan Validation Failed - Output:\n{infeasibility_reason}")
-            raise ValueError(f"Analysis plan deemed infeasible: {infeasibility_reason}")
+            logger.warning(f"Analysis plan deemed infeasible: {infeasibility_reason}")
+            # Return message instead of raising exception
+            return {
+                'error': f"Request cannot be fulfilled with the available data",
+                'infeasibility_reason': infeasibility_reason,
+                'alternative_suggestion': final_plan if final_plan and final_plan.strip() else None
+            }
         
         if final_plan != initial_plan:
             print(f"[History Stub - {session_id}] Step: Plan Refined - Output:\n{final_plan}")
@@ -223,6 +282,7 @@ async def initiate_analysis_async(user_request: str, db_uri: str) -> Dict[str, A
         # Store state needed for the execution step
         WORKFLOW_STATE_STORE[session_id] = {
             'user_request': user_request,
+            'request_type': 'specific',
             # 'db_context': db_context, # Avoid storing potentially large context
             'initial_plan': initial_plan,
             'final_plan': final_plan,
