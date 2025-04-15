@@ -387,6 +387,9 @@ Based ONLY on the provided database context (schema, relationships, summaries),
 suggest 5-7 specific and actionable analytical questions or insights that could 
 be investigated using this data.
 
+IMPORTANT: You are NOT being asked to execute SQL or provide actual data results.
+Instead, you should suggest potential analyses that could be run later.
+
 DATABASE CONTEXT:
 {database_context}
 
@@ -421,6 +424,14 @@ REMEMBER:
 - Only suggest analyses possible with the available data
 - Do not reference tables or columns not in the database context
 - Focus on practical insights, not just technical descriptions
+- DO NOT generate SQL queries - only natural language questions/insights
+
+RESPONSE FORMAT:
+Begin your response with "Here are some suggested analyses and insights for this data:" 
+followed by your numbered suggestions. Each suggestion should include:
+1. A clear analytical question
+2. Why this analysis would be valuable
+3. What data would be used (tables/columns mentioned)
 
 INSIGHT SUGGESTIONS:
 """

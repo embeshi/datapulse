@@ -20,6 +20,25 @@ def classify_user_intent(user_request: str) -> Tuple[Literal["specific", "explor
     # Convert to lowercase for comparison
     request_lower = user_request.lower().strip()
     
+    # Direct classification for common exploratory phrases
+    direct_exploratory_phrases = [
+        "what are some suggested", 
+        "what insights", 
+        "suggest some",
+        "what analysis", 
+        "what can you tell me about",
+        "what can i learn from",
+        "give me some insights",
+        "what are the main insights",
+        "show me what's interesting"
+    ]
+    
+    # Check for direct match with common exploratory phrases first
+    for phrase in direct_exploratory_phrases:
+        if phrase in request_lower:
+            logger.info(f"Direct exploratory phrase match: '{phrase}' in '{request_lower}'")
+            return "exploratory", 0.95
+    
     # Pattern matching for exploratory requests
     exploratory_patterns = [
         r"what (insight|analysis|information) can (i|we|you) (get|derive|extract)",
@@ -51,12 +70,12 @@ def classify_user_intent(user_request: str) -> Tuple[Literal["specific", "explor
     total_signals = len(exploratory_patterns) + len(exploratory_keywords)
     confidence = (pattern_matches + keyword_matches) / total_signals
     
-    # Apply threshold
+    # Apply threshold - lowered threshold to make it more sensitive to exploratory queries
     logger.debug(f"Intent classification for '{user_request[:30]}...': " 
                 f"pattern_matches={pattern_matches}, keyword_matches={keyword_matches}, " 
                 f"confidence={confidence:.2f}")
     
-    if confidence > 0.1:  # Set a low threshold as we have multiple signals
+    if confidence > 0.05:  # Very low threshold to capture more exploratory requests
         return "exploratory", confidence
     else:
         return "specific", 1.0 - confidence

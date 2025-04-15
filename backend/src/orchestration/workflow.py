@@ -54,7 +54,14 @@ def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
         print(f"[History Stub - {session_id}] Step: Request Received - Input: {user_request}")
         logger.info(f"Request classified as {intent} (confidence: {confidence:.2f})")
         
-        if intent == "exploratory":
+        # Special handling for queries about suggestions or insights
+        if "suggest" in user_request.lower() or "insight" in user_request.lower() or intent == "exploratory":
+            # Force exploratory mode for queries containing "suggest" or "insight"
+            if intent != "exploratory":
+                logger.info(f"Overriding classification to exploratory based on keywords")
+                intent = "exploratory"
+                confidence = 0.8
+            
             # Handle exploratory request - generate insights instead of SQL
             print(f"[History Stub - {session_id}] Step: Exploratory Request Detected - Confidence: {confidence:.2f}")
             
@@ -231,7 +238,14 @@ async def initiate_analysis_async(user_request: str, db_uri: str) -> Dict[str, A
         print(f"[History Stub - {session_id}] Step: Request Received - Input: {user_request}")
         logger.info(f"Request classified as {intent} (confidence: {confidence:.2f})")
         
-        if intent == "exploratory":
+        # Special handling for queries about suggestions or insights
+        if "suggest" in user_request.lower() or "insight" in user_request.lower() or intent == "exploratory":
+            # Force exploratory mode for queries containing "suggest" or "insight"
+            if intent != "exploratory":
+                logger.info(f"Overriding classification to exploratory based on keywords")
+                intent = "exploratory"
+                confidence = 0.8
+            
             # Handle exploratory request - generate insights instead of SQL
             print(f"[History Stub - {session_id}] Step: Exploratory Request Detected - Confidence: {confidence:.2f}")
             
