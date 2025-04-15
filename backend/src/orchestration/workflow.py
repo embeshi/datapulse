@@ -59,7 +59,13 @@ def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
         
         if not is_feasible:
             print(f"[History Stub - {session_id}] Step: Plan Validation Failed - Output:\n{infeasibility_reason}")
-            raise ValueError(f"Analysis plan deemed infeasible: {infeasibility_reason}")
+            logger.warning(f"Analysis plan deemed infeasible: {infeasibility_reason}")
+            # Instead of raising an exception, return a clear message to the user
+            return {
+                'error': f"Request cannot be fulfilled with the available data",
+                'infeasibility_reason': infeasibility_reason,
+                'alternative_suggestion': final_plan if final_plan and final_plan.strip() else None
+            }
         
         if final_plan != initial_plan:
             print(f"[History Stub - {session_id}] Step: Plan Refined - Output:\n{final_plan}")

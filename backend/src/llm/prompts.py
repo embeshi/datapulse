@@ -53,9 +53,13 @@ DATABASE CONTEXT:
 CRITICAL INSTRUCTIONS:
 1. ONLY use tables and columns that are explicitly mentioned in the DATABASE CONTEXT above.
 2. DO NOT make assumptions about tables or relationships that are not documented in the context.
-3. If the request requires tables or data that are not available in the context, your plan should
-   acknowledge this limitation and suggest what can be accomplished with the available data only.
+3. If the request requires tables or data that are not available in the context:
+   - First, explicitly state that the requested analysis CANNOT be performed as described
+   - Say "NO" clearly if the core request cannot be fulfilled at all
+   - Explain why it's not possible (e.g., "There is no 'stores' table in the database")
+   - Then, if possible, suggest an alternative analysis using the available data
 4. Be realistic about what analysis is possible with the tables provided.
+5. It's better to clearly state something is impossible than to create a plan that cannot work.
 
 Based on the request and the database context, provide a numbered, conceptual plan outlining
 the database operations needed. Focus on *what* needs to be done with the available tables.
@@ -177,6 +181,8 @@ CRITICAL REVIEW INSTRUCTIONS:
 5. Consider if the plan uses appropriate joins, filters, groupings, and aggregations given the database structure.
 6. Identify any potential performance issues (e.g., unnecessary joins, inefficient operations).
 7. Focus on feasibility first, then optimization.
+8. If a request mentions entities not in the database (e.g., "stores" when no store table exists), judge it as INFEASIBLE.
+9. For INFEASIBLE requests, clearly explain why it cannot be fulfilled and suggest alternatives if possible.
 
 OUTPUT REQUIREMENTS:
 1. First, assess the overall feasibility: FEASIBLE, NEEDS REVISION, or INFEASIBLE.

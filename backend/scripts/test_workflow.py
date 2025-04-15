@@ -56,6 +56,21 @@ async def main():
         
         if 'error' in initiation_result:
             logger.error(f"Analysis initiation failed: {initiation_result['error']}")
+            
+            # Check if this was due to an infeasible plan
+            if 'infeasibility_reason' in initiation_result:
+                print("\n=== ANALYSIS NOT POSSIBLE ===")
+                print(initiation_result['infeasibility_reason'])
+                
+                # Show alternative suggestion if available
+                if initiation_result.get('alternative_suggestion'):
+                    print("\nAlternative suggestion:")
+                    print("-" * 40)
+                    print(initiation_result['alternative_suggestion'])
+                    print("-" * 40)
+                
+                print("\nPlease try a different query that matches the available data.")
+            
             sys.exit(1)
         
         session_id = initiation_result['session_id']
