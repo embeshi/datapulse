@@ -19,7 +19,7 @@ def load_analysis_data(analysis_dir: str = "analysis_results") -> Dict[str, Any]
     analysis_path = Path(analysis_dir)
     
     if not analysis_path.exists() or not analysis_path.is_dir():
-        logger.warning(f"Analysis directory not found: {analysis_dir}")
+        logger.info(f"Analysis directory not found: {analysis_dir} - this is normal if no analysis has been run")
         return result
     
     for file_path in analysis_path.glob("*_analysis.json"):

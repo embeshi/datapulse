@@ -162,7 +162,10 @@ def get_prisma_database_context_string(db_uri: str, schema_path: Path = Path("pr
         # Load analysis data if available
         logger.info("Loading dataset analysis data...")
         analysis_data = load_analysis_data()
-        logger.info(f"Loaded analysis data for {len(analysis_data)} tables")
+        if analysis_data:
+            logger.info(f"Loaded analysis data for {len(analysis_data)} tables")
+        else:
+            logger.info("No analysis data found - will use basic schema information only")
         
         # Build context string with both schema info and data summaries
         context_parts = []
