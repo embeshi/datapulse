@@ -1,122 +1,99 @@
-```mermaid
-graph TD
-    subgraph External
-        User(User)
-        CSV(CSV Files)
-    end
+```
++-------------------------------------------------------------------------------------------------+
+|                                         SETUP PHASE                                             |
++-------------------------------------------------------------------------------------------------+
+|                                                                                                 |
+|  [CSV Files] ---> [Sampler] ---> [SchemaSuggest] ---> [LLMClientSetup] ---> [SchemaSuggest]     |
+|      ^              (src)           (src)                 (src)                 (src)           |
+|      |                                |                     ^                     |             |
+|      |                                | (Prompt)            | (API Key)           | (Suggestion)|
+|      |                                v                     |                     v             |
+|      +<----[DataLoader]<----[SchemaScript]<----[Schema]<----[SchemaScript]<----[SchemaSuggest]   |
+|      |      (src)             (scripts)       (prisma)       (scripts)           (src)           |
+|      |      (Reads)           (Trigger Load)  (User Edit)    (Save Suggestion)                   |
+|      |                                |                     ^                                   |
+|      |                                | (Run Generate/Push) | (User Confirmed)                  |
+|      v                                v                     |                                   |
+|  [SQLite DB] <----[Prisma CLI]<-------+---------------------+                                   |
+|  (analysis.db)    (External)                                                                    |
+|      ^                                                                                          |
+|      | (Writes)                                                                                 |
+|      +----[DataLoader]                                                                          |
+|             (src)                                                                               |
+|                                                                                                 |
+|  (Optional Analysis)                                                                            |
+|  [SQLite DB] ---> [DatasetAnalyzer] ---> [LLMClientSetup] ---> [DatasetAnalyzer] ---> [Analysis Results] |
+|      ^              (src)                   (src)                 (src)              (analysis_results/*)|
+|      |              (Reads)                 (Prompt)              (Writes)                           |
+|      +<----[SchemaScript]                                                                       |
+|             (scripts)                                                                           |
+|             (Trigger Analysis?)                                                                 |
+|                                                                                                 |
++-------------------------------------------------------------------------------------------------+
 
-    subgraph Setup Phase (Scripts)
-        SchemaScript(scripts/generate_schema.py)
-        Sampler(src/schema_generator/sampler.py)
-        SchemaSuggest(src/schema_generator/suggest.py)
-        LLMClientSetup(src/llm/client.py)
-        PrismaCLI(Prisma CLI)
-        DataLoader(src/data_handling/loader.py)
-        DatasetAnalyzer(src/data_handling/dataset_analysis.py)
-    end
-
-    subgraph Runtime Phase (FastAPI Application)
-        API(FastAPI App<br>src/api/main.py)
-        Router(Analysis Router<br>src/api/routers/analysis.py)
-        Orchestrator(Workflow Orchestrator<br>src/orchestration/workflow.py)
-        IntentClassifier(Intent Classifier<br>src/utils/intent_classifier.py)
-        ContextProvider(DB Context Provider<br>src/prisma_utils/context.py)
-        Planner(Planner Agent<br>src/agents/planner.py)
-        Validator(Plan Validator<br>src/agents/plan_validator.py)
-        SQLGenerator(SQL Generator Agent<br>src/agents/sql_generator.py)
-        SQLExecutor(SQL Executor<br>src/prisma_utils/executor.py)
-        SQLDebugger(SQL Debugger<br>src/agents/sql_generator.py)
-        Interpreter(Interpreter Agent<br>src/agents/interpreter.py)
-        LLMClientRuntime(src/llm/client.py)
-        StateStore([In-Memory State<br>workflow.py])
-    end
-
-    subgraph Data Persistence & Config
-        DB[(SQLite DB<br>analysis.db)]
-        Schema(Prisma Schema<br>prisma/schema.prisma)
-        AnalysisResults(Analysis Results<br>analysis_results/*.json)
-        EnvVars(Environment Vars<br>.env / .env.local)
-    end
-
-    %% Setup Flow
-    CSV --> Sampler
-    Sampler -- Samples --> SchemaSuggest
-    SchemaSuggest -- Prompt --> LLMClientSetup
-    LLMClientSetup -- API Key --> EnvVars
-    LLMClientSetup -- Suggestion --> SchemaSuggest
-    SchemaSuggest -- Suggested Schema --> SchemaScript
-    SchemaScript -- "User Review/Edit" --> Schema
-    Schema -- User Confirmed --> SchemaScript
-    SchemaScript -- Run Generate --> PrismaCLI
-    SchemaScript -- Run DB Push --> PrismaCLI
-    PrismaCLI -- Modifies --> DB
-    SchemaScript -- Trigger Load --> DataLoader
-    DataLoader -- Reads --> CSV
-    DataLoader -- Writes --> DB
-    SchemaScript -- Trigger Analysis? --> DatasetAnalyzer
-    DatasetAnalyzer -- Reads --> DB
-    DatasetAnalyzer -- Prompt --> LLMClientSetup
-    DatasetAnalyzer -- Writes --> AnalysisResults
-
-    %% Runtime Flow
-    User -- HTTP Request --> API
-    API -- Routes --> Router
-    Router -- Request Data --> Orchestrator
-    Orchestrator -- Get Context --> ContextProvider
-    ContextProvider -- Reads --> Schema
-    ContextProvider -- Reads --> DB
-    ContextProvider -- Reads --> AnalysisResults
-    ContextProvider -- Context String --> Orchestrator
-    Orchestrator -- Query --> IntentClassifier
-    IntentClassifier -- Prompt --> LLMClientRuntime
-    LLMClientRuntime -- API Key --> EnvVars
-    IntentClassifier -- Intent --> Orchestrator
-
-    %% Specific Analysis Path
-    Orchestrator -- Request+Context --> Planner
-    Planner -- Prompt --> LLMClientRuntime
-    Planner -- Initial Plan --> Orchestrator
-    Orchestrator -- Plan+Context --> Validator
-    Validator -- Prompt --> LLMClientRuntime
-    Validator -- Validated Plan --> Orchestrator
-    Orchestrator -- Plan+Context --> SQLGenerator
-    SQLGenerator -- Prompt --> LLMClientRuntime
-    SQLGenerator -- Generated SQL --> Orchestrator
-    Orchestrator -- Store --> StateStore
-    Orchestrator -- SQL+SessionID --> Router
-    Router -- HTTP Response --> User
-    User -- Approved SQL+SessionID --> API
-    Router -- Execute Request --> Orchestrator
-    Orchestrator -- Retrieve --> StateStore
-    Orchestrator -- SQL --> SQLExecutor
-    SQLExecutor -- Query --> DB
-    SQLExecutor -- Results/Error --> Orchestrator
-    Orchestrator -- If Error --> SQLDebugger
-    SQLDebugger -- Prompt --> LLMClientRuntime
-    SQLDebugger -- Suggestion --> Orchestrator
-    Orchestrator -- If Success --> Interpreter
-    Interpreter -- Prompt --> LLMClientRuntime
-    Interpreter -- Interpretation --> Orchestrator
-    Orchestrator -- Final Result/Error --> Router
-    Router -- HTTP Response --> User
-
-    %% Exploratory Paths (Simplified)
-    Orchestrator -- Request+Context (Insights) --> Planner
-    Planner -- Insights --> Orchestrator --> Router --> User
-    Orchestrator -- Request+Context (Describe) --> Orchestrator -- Description --> Router --> User
-
-    %% Style
-    classDef script fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef api fill:#ccf,stroke:#333,stroke-width:2px;
-    classDef agent fill:#ff9,stroke:#333,stroke-width:2px;
-    classDef data fill:#9cf,stroke:#333,stroke-width:2px;
-    classDef manual fill:#fcc,stroke:#333,stroke-width:2px;
-
-    class SchemaScript,Sampler,SchemaSuggest,DataLoader,DatasetAnalyzer script;
-    class API,Router,Orchestrator,IntentClassifier,ContextProvider,SQLExecutor,StateStore api;
-    class Planner,Validator,SQLGenerator,SQLDebugger,Interpreter,LLMClientSetup,LLMClientRuntime agent;
-    class DB,Schema,AnalysisResults,EnvVars,CSV data;
-    class User manual;
++-------------------------------------------------------------------------------------------------+
+|                                         RUNTIME PHASE                                           |
++-------------------------------------------------------------------------------------------------+
+|                                                                                                 |
+|  [User] ---> [FastAPI App] ---> [Router] ---> [Orchestrator] ---> [ContextProvider] ---> [Schema] |
+|              (src/api)          (src/api)      (src)              (src/prisma_utils)    (prisma)|
+|                                                   ^                     | (Reads)               |
+|                                                   | (Context String)    v                       |
+|                                                   +------------------- [SQLite DB] <------------+
+|                                                   |                     (analysis.db)           |
+|                                                   |                     ^         ^             |
+|                                                   | (Reads)             | (Reads) |             |
+|                                                   +---------------------+---------+             |
+|                                                   |                                             |
+|                                                   | ---> [IntentClassifier] ---> [LLMClientRuntime] |
+|                                                   |      (src/utils)           (src/llm)          |
+|                                                   |         ^                                     |
+|                                                   | (Intent)|                                     |
+|                                                   +---------+                                     |
+|                                                   |                                             |
+|  (Route based on Intent)                          |                                             |
+|  /----------------+----------------\              |                                             |
+|  | Descriptive    | Analytical     | Specific     |                                             |
+|  v                v                v              |                                             |
+| [Describer]    [Planner]        [Planner] <-------+                                             |
+| (in Orch.)     (Insights Mode)  (Plan Mode)                                                     |
+|  |                |                |                                                             |
+|  v (Description)  v (Suggestions)  v (Initial Plan)                                             |
+| [Orchestrator] -> [Router] -> [User] | -> [Orchestrator] -> [Validator] -> [Orchestrator]        |
+|                                      |                     (src/agents)      |                   |
+|                                      |                                       v (Validated Plan)  |
+|                                      +-------------------------------------> [SQLGenerator]      |
+|                                                                              (src/agents)        |
+|                                                                                | (Generated SQL)   |
+|                                                                                v                   |
+|                                                                              [Orchestrator] ----> [StateStore] |
+|                                                                                |                   (In-Memory) |
+|                                                                                v (SQL + SessionID) |
+|                                                                              [Router] ----------> [User]       |
+|                                                                                |                  (Review SQL)|
+|                                                                                v (Execute Request)|
+|                                                                              [Orchestrator] <---- [User]       |
+|                                                                                | (Execute Phase)  (Approved SQL)|
+|                                                                                |                  ^             |
+|                                                                                v                  |             |
+|                                                                              [SQLExecutor] -----> [SQLite DB]  |
+|                                                                              (src/prisma_utils)   ^             |
+|                                                                                | (Results/Error)  |             |
+|                                                                                v                  |             |
+|                                                                              [Orchestrator] ------+             |
+|                                                                                |        |                       |
+|                                                               (If Error)       |        | (If Success)          |
+|                                                                        v        |        v                       |
+|                                                                     [SQLDebugger] |      [Interpreter]         |
+|                                                                     (src/agents)  |      (src/agents)          |
+|                                                                        |        |        |                       |
+|                                                                        v        |        v                       |
+|                                                                     [Orchestrator] <------+                       |
+|                                                                        | (Final Result/Error)                 |
+|                                                                        v                                      |
+|                                                                      [Router] ----------> [User]              |
+|                                                                                                               |
++-------------------------------------------------------------------------------------------------+
 ```
 
 **System Overview:**

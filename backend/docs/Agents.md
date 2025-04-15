@@ -1,87 +1,127 @@
-```mermaid
-graph LR
-    subgraph "User Interaction"
-        User(User Input)
-    end
+```
++-----------------+      +---------------------------------+      +---------------------------------+
+|   User Input    |----->|      FastAPI Endpoint           |----->|      Workflow Orchestrator      |
+| (via /analyze)  |      |      (src/api/routers/...)      |<-----|      (src/orchestration/...)    |
++-----------------+      +------------------^--------------+      +----^----------------------^-----+
+                                            |                             |                      |
+                                            | (SQL/Suggestions/Desc./     | (Get Context)        | (Classify Intent)
+                                            |  Result/Error to User)      |                      |
+                                            |                             v                      v
+                                            |      +----------------------+      +----------------------+
+                                            |      | DB Context Provider  |      |   Intent Classifier  |
+                                            |      | (src/prisma_utils/...) |      | (src/utils/...)      |
+                                            |      +----------+-----------+      +----------+-----------+
+                                            |                 | (Schema, Summaries, Analysis Data) |
+                                            |                 v                              v
+                                            |      +----------+-----------+      +----------+-----------+
+                                            |      | Prisma Schema        |      | SQLite DB            |
+                                            |      | (prisma/schema.prisma)|      | (analysis.db)        |
+                                            |      +----------------------+      +----------------------+
+                                            |      +----------------------+
+                                            |      | Analysis Results     |
+                                            |      | (analysis_results/*) |
+                                            |      +----------------------+
+                                            |
++-------------------------------------------+----------------------------------------------------------+
+|                                       Agent Layer & Flows                                            |
++-------------------------------------------+----------------------------------------------------------+
+                                            | (Route based on Intent)
+                                            |
+           +--------------------------------+--------------------------------+-------------------------+
+           | (Descriptive)                  | (Analytical)                   | (Specific)              |
+           v                                v                                v                         |
++----------+-----------+         +----------+-----------+         +----------+-----------+             |
+| Data Describer       |         | Planner Agent        |<--------| Planner Agent        |             |
+| (in Orchestrator)    |         | (Insights Mode)      |         | (Plan Mode)          |             |
++----------+-----------+         +----------+-----------+         +----------+-----------+             |
+           |                                |                                |                         |
+           | (Description)                  | (Suggestions)                  | (Initial Plan)          |
+           v                                v                                v                         |
++----------+-----------+         +----------+-----------+         +----------+-----------+             |
+| State Store          |<--------| State Store          |<--------| Workflow Orchestrator|             |
+| (In-Memory Dict)     |         | (In-Memory Dict)     |         +----------+-----------+             |
++----------------------+         +----------------------+                    | (Plan + Context)        |
+           |                                |                                v                         |
+           | (Desc. + SessionID)            | (Sugg. + SessionID)            +----------+-----------+             |
+           v                                v                                | Plan Validator       |             |
++----------+-----------+         +----------+-----------+         | (src/agents/...)     |             |
+| FastAPI Endpoint     |         | FastAPI Endpoint     |         +----------+-----------+             |
+| (Response to User)   |         | (Response to User)   |                    | (Validated Plan)        |
++----------------------+         +----------------------+                    v                         |
+                                                                   +----------+-----------+             |
+                                                                   | Workflow Orchestrator|             |
+                                                                   +----------+-----------+             |
+                                                                              | (If Feasible)           |
+                                                                              v                         |
+                                                                   +----------+-----------+             |
+                                                                   | SQL Generator Agent  |             |
+                                                                   | (src/agents/...)     |             |
+                                                                   +----------+-----------+             |
+                                                                              | (Generated SQL)         |
+                                                                              v                         |
+                                                                   +----------+-----------+             |
+                                                                   | Workflow Orchestrator|             |
+                                                                   +----------+-----------+             |
+                                                                              |                         |
+                                                                              | (Store State)           |
+                                                                              v                         |
+                                                                   +----------+-----------+             |
+                                                                   | State Store          |             |
+                                                                   | (In-Memory Dict)     |             |
+                                                                   +----------------------+             |
+                                                                              | (SQL + SessionID)       |
+                                                                              v                         |
+                                                                   +----------+-----------+             |
+                                                                   | FastAPI Endpoint     |------------>+ User
+                                                                   | (SQL for Review)     |             | (Review/Edit SQL)
+                                                                   +----------+-----------+             |
+                                                                              |                         |
+                                                                              | (Approved SQL + SessionID)|
+                                                                              v                         |
+                                                                   +----------+-----------+             |
+                                                                   | FastAPI Endpoint     |<------------+
+                                                                   | (/execute)           |
+                                                                   +----------+-----------+
+                                                                              | (Execute Request)
+                                                                              v
+                                                                   +----------+-----------+
+                                                                   | Workflow Orchestrator|
+                                                                   | (Execute Phase)      |
+                                                                   +----------+-----------+
+                                                                              | (Retrieve State)
+                                                                              v
+                                                                   +----------+-----------+
+                                                                   | State Store          |
+                                                                   +----------------------+
+                                                                              | (Approved SQL)
+                                                                              v
+                                                                   +----------+-----------+
+                                                                   | SQL Executor         |----------->+ SQLite DB
+                                                                   | (src/prisma_utils/...) |<-----------+ (Results/Error)
+                                                                   +----------+-----------+
+                                                                              | (Results/Error)
+                                                                              v
+                                                                   +----------+-----------+
+                                                                   | Workflow Orchestrator|
+                                                                   +----^-----------+----^--+
+                                                                        | (If Error)    | (If Success)
+                                                                        v               v
+                                                              +-----------+---+ +---------+----------+
+                                                              | SQL Debugger  | | Interpreter Agent|
+                                                              | (src/agents/..)| | (src/agents/...) |
+                                                              +-----------+---+ +---------+----------+
+                                                                        | (Debug Suggestion) | (Interpretation)
+                                                                        v               v
+                                                              +-----------+---------------+----------+
+                                                              |         Workflow Orchestrator        |
+                                                              +-----------------+--------------------+
+                                                                                | (Final Result/Error)
+                                                                                v
+                                                                     +----------+-----------+
+                                                                     | FastAPI Endpoint     |---------> User
+                                                                     | (Response to User)   |
+                                                                     +----------------------+
 
-    subgraph "Core Orchestration & API"
-        API(FastAPI Endpoint<br>/api/analyze)
-        Orchestrator(Workflow Orchestrator<br>src/orchestration/workflow.py)
-        IntentClassifier(Intent Classifier<br>src/utils/intent_classifier.py)
-        Context(DB Context Provider<br>src/prisma_utils/context.py)
-        State(State Store<br>[In-Memory Dict])
-    end
-
-    subgraph "Agent Layer"
-        Planner(Planner Agent<br>src/agents/planner.py)
-        Validator(Plan Validator<br>src/agents/plan_validator.py)
-        SQLGenerator(SQL Generator<br>src/agents/sql_generator.py)
-        Interpreter(Interpreter Agent<br>src/agents/interpreter.py)
-        SQLDebugger(SQL Debugger<br>src/agents/sql_generator.py)
-        Describer(Data Describer<br>src/orchestration/workflow.py)
-    end
-
-    subgraph "Data & Execution Layer"
-        Executor(SQL Executor<br>src/prisma_utils/executor.py)
-        DB[(SQLite DB<br>analysis.db)]
-        Schema(Prisma Schema<br>prisma/schema.prisma)
-        AnalysisData(Analysis Results<br>analysis_results/*.json)
-    end
-
-    User -- Request --> API
-    API -- User Query --> Orchestrator
-    Orchestrator -- Get Context --> Context
-    Context -- Schema Info --> Schema
-    Context -- Analysis Info --> AnalysisData
-    Context -- Data Summaries --> DB
-    Context -- Formatted Context --> Orchestrator
-
-    Orchestrator -- Classify Intent --> IntentClassifier
-    IntentClassifier -- Intent --> Orchestrator
-
-    Orchestrator -- Route based on Intent --> Describer
-    Orchestrator -- Route based on Intent --> Planner
-    Orchestrator -- Route based on Intent --> Planner
-
-    subgraph "Specific Analysis Flow"
-        Orchestrator -- Request + Context --> Planner(Plan Mode)
-        Planner -- Initial Plan --> Orchestrator
-        Orchestrator -- Plan + Context --> Validator
-        Validator -- Validated/Refined Plan + Feasibility --> Orchestrator
-        Orchestrator -- If Feasible --> SQLGenerator
-        SQLGenerator -- Generated SQL --> Orchestrator
-        Orchestrator -- Store State --> State
-        Orchestrator -- Generated SQL + SessionID --> API
-        API -- SQL for Review --> User
-        User -- Approved/Edited SQL + SessionID --> API(Execute Endpoint)
-        API(Execute Endpoint) -- Approved SQL + SessionID --> Orchestrator(Execute)
-        Orchestrator(Execute) -- Retrieve State --> State
-        Orchestrator(Execute) -- Approved SQL --> Executor
-        Executor -- Execute --> DB
-        Executor -- Results/Error --> Orchestrator(Execute)
-        Orchestrator(Execute) -- If Error --> SQLDebugger
-        SQLDebugger -- Debug Suggestion --> Orchestrator(Execute)
-        Orchestrator(Execute) -- Debug Suggestion --> API(Execute Endpoint) --> User
-        Orchestrator(Execute) -- If Success --> Interpreter
-        Interpreter -- Interpretation --> Orchestrator(Execute)
-        Orchestrator(Execute) -- Final Result --> API(Execute Endpoint) --> User
-    end
-
-    subgraph "Exploratory Analytical Flow"
-        Orchestrator -- Request + Context --> Planner(Insights Mode)
-        Planner -- Suggestions --> Orchestrator
-        Orchestrator -- Store State --> State
-        Orchestrator -- Suggestions + SessionID --> API
-        API -- Suggestions --> User
-    end
-
-    subgraph "Exploratory Descriptive Flow"
-        Orchestrator -- Request + Context --> Describer
-        Describer -- Description --> Orchestrator
-        Orchestrator -- Store State --> State
-        Orchestrator -- Description + SessionID --> API
-        API -- Description --> User
-    end
 ```
 
 **Agent Responsibilities & Interactions (Current Implementation):**
