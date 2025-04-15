@@ -14,6 +14,8 @@ openai>=1.0.0
 # API & Web
 fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
+python-multipart>=0.0.6  # For handling form data
+starlette>=0.27.0  # Better CORS and middleware support
 
 # Database
 prisma-client-py>=0.9.0
