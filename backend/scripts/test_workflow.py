@@ -106,7 +106,43 @@ async def main():
         
         if 'error' in final_result:
             logger.error(f"Analysis execution failed: {final_result['error']}")
-            sys.exit(1)
+            
+            # Check if we have a debug suggestion
+            if 'debug_suggestion' in final_result:
+                print("\nSQL Execution Error:", final_result['error'])
+                print("\nDebug Suggestion SQL:")
+                print("-" * 60)
+                print(final_result['debug_suggestion'])
+                print("-" * 60)
+                
+                # Ask if user wants to try the suggested fix
+                print("\nDo you want to:")
+                print("1. Try the suggested SQL fix")
+                print("2. Skip and exit")
+                
+                choice = input("\nEnter your choice (1/2): ").strip()
+                
+                if choice == '1':
+                    # Execute with the suggested fix
+                    logger.info("\n--- STEP 3: Execute Debug Suggestion ---")
+                    debug_sql = final_result['debug_suggestion']
+                    session_id = final_result['session_id']
+                    
+                    if args.use_async:
+                        retry_result = await execute_approved_analysis_async(session_id, debug_sql)
+                    else:
+                        retry_result = execute_approved_analysis(session_id, debug_sql)
+                    
+                    if 'error' in retry_result:
+                        logger.error(f"Debug suggestion execution also failed: {retry_result['error']}")
+                        sys.exit(1)
+                    else:
+                        # Update final_result with successful retry
+                        final_result = retry_result
+                else:
+                    sys.exit(1)
+            else:
+                sys.exit(1)
         
         # Display results
         print("\nInterpreted Results:")

@@ -84,7 +84,8 @@ def execute_approved_analysis(session_id: str, approved_sql: str) -> Dict[str, A
 
     Returns:
         Dictionary containing {'interpretation': str, 'results': List[Dict], 'history': List} on success.
-        Dictionary {'error': str} on failure.
+        Dictionary containing {'error': str, 'debug_suggestion': str} if execution fails but debugger suggests a fix.
+        Dictionary {'error': str} on other failures.
     """
     logger.info(f"Executing approved analysis for session_id: {session_id}")
 
@@ -94,8 +95,9 @@ def execute_approved_analysis(session_id: str, approved_sql: str) -> Dict[str, A
         logger.error(f"Session ID not found in state store: {session_id}")
         return {'error': f"Invalid or expired session ID: {session_id}"}
 
-    original_request = session_state.get('user_request', 'Unknown Request') # Retrieve original request
-    # Optionally retrieve plan/context if needed by interpreter, though current prompt doesn't use them
+    original_request = session_state.get('user_request', 'Unknown Request')
+    original_plan = session_state.get('plan', '')
+    db_context = prisma_context.get_prisma_database_context_string('sqlite:///analysis.db')
 
     try:
         # Log approval (stub)
@@ -104,13 +106,27 @@ def execute_approved_analysis(session_id: str, approved_sql: str) -> Dict[str, A
         # Execute SQL using Prisma executor
         results, error = prisma_executor.execute_prisma_raw_sql_sync(approved_sql)
 
-        # Log execution (stub)
+        # Log execution status
         if error:
             print(f"[History Stub - {session_id}] Step: SQL Execution Failed - Output: {error}")
-            raise ValueError(f"SQL Execution failed: {error}")
+            
+            # Call SQL debugger to suggest a fix
+            from src.agents import sql_generator
+            debug_suggestion = sql_generator.debug_sql_error(
+                original_request, approved_sql, error, original_plan, db_context
+            )
+            
+            print(f"[History Stub - {session_id}] Step: SQL Debug Suggestion - Output:\n{debug_suggestion}")
+            
+            # Return error with debug suggestion instead of raising
+            return {
+                'error': f"SQL Execution failed: {error}", 
+                'debug_suggestion': debug_suggestion,
+                'original_sql': approved_sql,
+                'session_id': session_id  # Keep session alive for potential retry
+            }
         else:
-             print(f"[History Stub - {session_id}] Step: SQL Execution Succeeded - Output: {len(results)} rows")
-
+            print(f"[History Stub - {session_id}] Step: SQL Execution Succeeded - Output: {len(results)} rows")
 
         interpretation = interpreter.run_interpreter(original_request, results)
         print(f"[History Stub - {session_id}] Step: Interpretation Generated - Output:\n{interpretation}")
@@ -122,14 +138,14 @@ def execute_approved_analysis(session_id: str, approved_sql: str) -> Dict[str, A
         # Retrieve actual history later in Phase 5
         history_stub = [
             f"Request: {original_request}",
-            f"Plan: {session_state.get('plan', 'N/A')}",
+            f"Plan: {original_plan}",
             f"Generated SQL: {session_state.get('generated_sql', 'N/A')}",
             f"Approved SQL: {approved_sql}",
             f"Execution: {len(results)} rows",
             f"Interpretation: {interpretation}"
         ]
 
-        return {'interpretation': interpretation, 'results': results, 'history': history_stub} # Return stub history
+        return {'interpretation': interpretation, 'results': results, 'history': history_stub}
 
     except Exception as e:
         logger.error(f"Error during analysis execution (Session: {session_id}): {e}")
@@ -201,6 +217,8 @@ async def execute_approved_analysis_async(session_id: str, approved_sql: str) ->
         return {'error': f"Invalid or expired session ID: {session_id}"}
 
     original_request = session_state.get('user_request', 'Unknown Request')
+    original_plan = session_state.get('plan', '')
+    db_context = prisma_context.get_prisma_database_context_string('sqlite:///analysis.db')
 
     try:
         # Log approval (stub)
@@ -210,12 +228,27 @@ async def execute_approved_analysis_async(session_id: str, approved_sql: str) ->
         results, error = await prisma_executor.execute_prisma_raw_sql_async(approved_sql)
         # ---------------------------------------
 
-        # Log execution (stub)
+        # Log execution status
         if error:
             print(f"[History Stub - {session_id}] Step: SQL Execution Failed - Output: {error}")
-            raise ValueError(f"SQL Execution failed: {error}")
+            
+            # Call SQL debugger to suggest a fix
+            from src.agents import sql_generator
+            debug_suggestion = sql_generator.debug_sql_error(
+                original_request, approved_sql, error, original_plan, db_context
+            )
+            
+            print(f"[History Stub - {session_id}] Step: SQL Debug Suggestion - Output:\n{debug_suggestion}")
+            
+            # Return error with debug suggestion instead of raising
+            return {
+                'error': f"SQL Execution failed: {error}", 
+                'debug_suggestion': debug_suggestion,
+                'original_sql': approved_sql,
+                'session_id': session_id  # Keep session alive for potential retry
+            }
         else:
-             print(f"[History Stub - {session_id}] Step: SQL Execution Succeeded - Output: {len(results)} rows")
+            print(f"[History Stub - {session_id}] Step: SQL Execution Succeeded - Output: {len(results)} rows")
 
         # Interpreter agent call (assumed sync)
         interpretation = interpreter.run_interpreter(original_request, results)
@@ -228,7 +261,7 @@ async def execute_approved_analysis_async(session_id: str, approved_sql: str) ->
         # Retrieve actual history later in Phase 5
         history_stub = [
             f"Request: {original_request}",
-            f"Plan: {session_state.get('plan', 'N/A')}",
+            f"Plan: {original_plan}",
             f"Generated SQL: {session_state.get('generated_sql', 'N/A')}",
             f"Approved SQL: {approved_sql}",
             f"Execution: {len(results)} rows",

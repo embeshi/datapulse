@@ -143,6 +143,63 @@ SUMMARY:
 """
     return prompt.strip()
 
+def get_sql_debug_prompt(user_request: str, failed_sql: str, error_message: str, 
+                          conceptual_plan: str, database_context: str) -> str:
+    """
+    Generates the prompt for the SQL Debugging Agent LLM call when SQL execution fails.
+
+    Args:
+        user_request: The user's original natural language request.
+        failed_sql: The SQL query that failed execution.
+        error_message: The database error message received.
+        conceptual_plan: The original conceptual plan that led to the SQL.
+        database_context: String containing schema and data summaries.
+
+    Returns:
+        The formatted prompt string.
+    """
+    prompt = f"""
+You are an expert SQL debugger specializing in SQLite. Your task is to analyze a failed SQL query,
+understand the error message, and provide a corrected version of the query that will execute successfully.
+
+USER REQUEST:
+"{user_request}"
+
+ORIGINAL CONCEPTUAL PLAN:
+{conceptual_plan}
+
+DATABASE CONTEXT:
+{database_context}
+
+FAILED SQL QUERY:
+{failed_sql}
+
+ERROR MESSAGE:
+{error_message}
+
+ANALYSIS INSTRUCTIONS:
+1. Carefully examine the error message to identify the specific issue.
+2. Common SQLite errors include:
+   - Syntax errors: Incorrect SQL syntax or reserved word issues
+   - Table/column not found: Referencing tables or columns that don't exist
+   - Type mismatch: Attempting operations between incompatible data types
+   - Constraint violations: Violating primary key, foreign key, or other constraints
+3. Check if table and column names in the query match exactly what's in the DATABASE CONTEXT.
+4. Ensure proper quoting of identifiers if they contain special characters or are SQLite keywords.
+5. Verify join conditions refer to columns of the correct type.
+
+CRITICAL REQUIREMENTS:
+1. You MUST provide a corrected SQL query that adheres strictly to SQLite syntax.
+2. The corrected SQL must maintain the intent of the original query and conceptual plan.
+3. ONLY use tables and columns that explicitly appear in the DATABASE CONTEXT.
+4. Add brief inline comments (-- comment) explaining your key fixes.
+5. If multiple solutions are possible, choose the simplest approach.
+6. If the error is unfixable (e.g., requested data simply doesn't exist in schema), clearly state why.
+
+Provide your corrected SQL query below:
+"""
+    return prompt.strip()
+
 def get_schema_suggestion_prompt(csv_samples: Dict[str, str]) -> str:
     """
     Generates the prompt for the LLM to suggest a Prisma schema.

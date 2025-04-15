@@ -106,3 +106,39 @@ def run_sql_generator(conceptual_plan: str, database_context: str) -> str:
     except Exception as e:
         logger.error(f"SQL Generator agent failed: {e}")
         raise
+
+def debug_sql_error(user_request: str, failed_sql: str, error_message: str, 
+                    conceptual_plan: str, database_context: str) -> str:
+    """
+    Analyzes a failed SQL query, the error message, and suggests a corrected SQL query.
+    
+    Args:
+        user_request: The original user query that initiated the analysis
+        failed_sql: The SQL query that failed execution
+        error_message: The database error message received
+        conceptual_plan: The original conceptual plan that led to the SQL
+        database_context: String containing schema and data summaries
+        
+    Returns:
+        A suggested fixed SQL query
+    """
+    logger.info(f"Running SQL debugger for failed query with error: {error_message}")
+    try:
+        prompt = prompts.get_sql_debug_prompt(
+            user_request, failed_sql, error_message, conceptual_plan, database_context
+        )
+        raw_debug_response = client.call_llm(prompt)
+        fixed_sql = _extract_sql(raw_debug_response)
+        
+        # Validate the fixed SQL query references only existing tables
+        is_valid, message = _validate_table_references(fixed_sql, database_context)
+        if not is_valid:
+            logger.warning(f"Fixed SQL still has validation issues: {message}")
+            return f"-- WARNING: The suggested fix still has validation issues: {message}\n-- Use with caution.\n{fixed_sql}"
+        
+        logger.info(f"SQL Debugger produced fixed query:\n{fixed_sql}")
+        return fixed_sql
+    except Exception as e:
+        logger.error(f"SQL Debugger agent failed: {e}")
+        # In case of failure in the debugger itself, return something reasonable
+        return f"-- ERROR: Could not generate a fix due to: {e}\n-- Original query with error: {error_message}\n{failed_sql}"
