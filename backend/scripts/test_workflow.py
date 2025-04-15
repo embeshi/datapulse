@@ -62,6 +62,23 @@ async def main():
         generated_sql = initiation_result['generated_sql']
         
         logger.info(f"Session ID: {session_id}")
+        
+        # Check if there was plan refinement
+        if 'initial_plan' in initiation_result and 'final_plan' in initiation_result:
+            initial_plan = initiation_result.get('initial_plan', '')
+            final_plan = initiation_result.get('final_plan', '')
+            
+            if initial_plan != final_plan:
+                print("\nInitial Plan (before validation):")
+                print("-" * 40)
+                print(initial_plan)
+                print("-" * 40)
+                
+                print("\nRefined Plan (after validation):")
+                print("-" * 40)
+                print(final_plan)
+                print("-" * 40)
+        
         print("\nGenerated SQL:")
         print("-" * 40)
         print(generated_sql)

@@ -24,7 +24,7 @@ logger.warning("Using basic in-memory WORKFLOW_STATE_STORE. State will be lost o
 
 def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
     """
-    Starts the analysis workflow: gets context, plans, generates SQL.
+    Starts the analysis workflow: gets context, plans, validates plan, generates SQL.
     Stores intermediate state associated with a new session ID.
 
     Args:
@@ -47,17 +47,36 @@ def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
         # Log initial step (using simple print for now, replace with history manager later)
         print(f"[History Stub - {session_id}] Step: Request Received - Input: {user_request}")
 
-        plan = planner.run_planner(user_request, db_context)
-        print(f"[History Stub - {session_id}] Step: Plan Generated - Output:\n{plan}")
+        # Generate initial plan
+        initial_plan = planner.run_planner(user_request, db_context)
+        print(f"[History Stub - {session_id}] Step: Initial Plan Generated - Output:\n{initial_plan}")
 
-        generated_sql = sql_generator.run_sql_generator(plan, db_context)
+        # Validate and potentially refine the plan
+        from src.agents import plan_validator
+        final_plan, is_feasible, infeasibility_reason = plan_validator.run_plan_validator(
+            user_request, initial_plan, db_context
+        )
+        
+        if not is_feasible:
+            print(f"[History Stub - {session_id}] Step: Plan Validation Failed - Output:\n{infeasibility_reason}")
+            raise ValueError(f"Analysis plan deemed infeasible: {infeasibility_reason}")
+        
+        if final_plan != initial_plan:
+            print(f"[History Stub - {session_id}] Step: Plan Refined - Output:\n{final_plan}")
+        else:
+            print(f"[History Stub - {session_id}] Step: Plan Validated - Output: Plan is feasible")
+
+        # Generate SQL based on the validated/refined plan
+        generated_sql = sql_generator.run_sql_generator(final_plan, db_context)
         print(f"[History Stub - {session_id}] Step: SQL Generated - Output:\n{generated_sql}")
 
         # Store state needed for the execution step
         WORKFLOW_STATE_STORE[session_id] = {
             'user_request': user_request,
             # 'db_context': db_context, # Avoid storing potentially large context
-            'plan': plan,
+            'initial_plan': initial_plan,
+            'final_plan': final_plan,
+            'plan': final_plan,  # Keep this for backward compatibility
             'generated_sql': generated_sql,
         }
         logger.info(f"Stored initial state for session_id: {session_id}")
@@ -158,7 +177,7 @@ def execute_approved_analysis(session_id: str, approved_sql: str) -> Dict[str, A
 # Add async versions of the workflow functions
 async def initiate_analysis_async(user_request: str, db_uri: str) -> Dict[str, Any]:
     """
-    Starts analysis: gets Prisma context, plans, generates SQL (async compatible).
+    Starts analysis: gets Prisma context, plans, validates plan, generates SQL (async compatible).
     Stores state associated with a new session ID.
     """
     session_id = uuid.uuid4().hex
@@ -172,18 +191,36 @@ async def initiate_analysis_async(user_request: str, db_uri: str) -> Dict[str, A
 
         print(f"[History Stub - {session_id}] Step: Request Received - Input: {user_request}")
 
-        # Agent calls are assumed sync here, wrapping sync llm client call
-        plan = planner.run_planner(user_request, db_context)
-        print(f"[History Stub - {session_id}] Step: Plan Generated - Output:\n{plan}")
+        # Generate initial plan (agent calls are assumed sync here, wrapping sync llm client call)
+        initial_plan = planner.run_planner(user_request, db_context)
+        print(f"[History Stub - {session_id}] Step: Initial Plan Generated - Output:\n{initial_plan}")
 
-        generated_sql = sql_generator.run_sql_generator(plan, db_context)
+        # Validate and potentially refine the plan
+        from src.agents import plan_validator
+        final_plan, is_feasible, infeasibility_reason = plan_validator.run_plan_validator(
+            user_request, initial_plan, db_context
+        )
+        
+        if not is_feasible:
+            print(f"[History Stub - {session_id}] Step: Plan Validation Failed - Output:\n{infeasibility_reason}")
+            raise ValueError(f"Analysis plan deemed infeasible: {infeasibility_reason}")
+        
+        if final_plan != initial_plan:
+            print(f"[History Stub - {session_id}] Step: Plan Refined - Output:\n{final_plan}")
+        else:
+            print(f"[History Stub - {session_id}] Step: Plan Validated - Output: Plan is feasible")
+
+        # Generate SQL based on the validated/refined plan
+        generated_sql = sql_generator.run_sql_generator(final_plan, db_context)
         print(f"[History Stub - {session_id}] Step: SQL Generated - Output:\n{generated_sql}")
 
         # Store state needed for the execution step
         WORKFLOW_STATE_STORE[session_id] = {
             'user_request': user_request,
             # 'db_context': db_context, # Avoid storing potentially large context
-            'plan': plan,
+            'initial_plan': initial_plan,
+            'final_plan': final_plan,
+            'plan': final_plan,  # Keep this for backward compatibility
             'generated_sql': generated_sql,
         }
         logger.info(f"Stored initial state for session_id: {session_id}")
