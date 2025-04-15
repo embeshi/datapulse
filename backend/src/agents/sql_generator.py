@@ -34,6 +34,36 @@ def _extract_sql(raw_response: str) -> str:
         return sql_query
 
 
+def _validate_sql_query(sql_query: str, database_context: str) -> tuple[bool, str]:
+    """
+    Performs comprehensive validation of an SQL query against the database context.
+    
+    Args:
+        sql_query: The SQL query string to validate
+        database_context: String containing database schema and summaries
+        
+    Returns:
+        Tuple of (is_valid, message) where is_valid is True if query is valid,
+        and message contains error details if invalid
+    """
+    # First, validate table references
+    is_tables_valid, tables_message = _validate_table_references(sql_query, database_context)
+    if not is_tables_valid:
+        return False, tables_message
+    
+    # Validate column references
+    is_columns_valid, columns_message = _validate_column_references(sql_query, database_context)
+    if not is_columns_valid:
+        return False, columns_message
+    
+    # Validate basic SQL syntax
+    is_syntax_valid, syntax_message = _validate_sql_syntax(sql_query)
+    if not is_syntax_valid:
+        return False, syntax_message
+    
+    # If we get here, validation passed
+    return True, "SQL query validation passed"
+
 def _validate_table_references(sql_query: str, database_context: str) -> tuple[bool, str]:
     """
     Validates that all tables referenced in the SQL query exist in the database context.
@@ -82,6 +112,202 @@ def _validate_table_references(sql_query: str, database_context: str) -> tuple[b
         return False, f"Referenced tables that don't exist: {', '.join(missing_tables)}"
     
     return True, "All table references are valid"
+
+def _validate_column_references(sql_query: str, database_context: str) -> tuple[bool, str]:
+    """
+    Validates that all columns referenced in the SQL query exist in the specified tables.
+    
+    Args:
+        sql_query: The SQL query string to validate
+        database_context: String containing database schema and summaries
+        
+    Returns:
+        Tuple of (is_valid, message) where is_valid is True if all columns exist,
+        and message contains error details if invalid
+    """
+    # Extract table-column mapping from database context
+    tables_columns = {}
+    current_table = None
+    
+    for line in database_context.splitlines():
+        # Identify the current table being processed
+        if "--- Table:" in line or "-- Table:" in line:
+            # New format: --- Table: tablename (Model: ModelName) ---
+            table_match = re.search(r"---? Table: (\w+)", line)
+            if table_match:
+                current_table = table_match.group(1).lower()
+                tables_columns[current_table] = []
+        
+        # If we're processing a table and find column definitions
+        elif current_table and (line.strip().startswith("- ") or line.strip().startswith("Schema Columns:")):
+            # Try to extract column names from different formats
+            if "Schema Columns:" in line:
+                # Old format: "Schema Columns: col1 (type), col2 (type)..."
+                cols_part = line.split("Schema Columns:")[1].strip()
+                cols = re.findall(r'(\w+)\s*\([^)]*\)', cols_part)
+                tables_columns[current_table].extend([c.lower() for c in cols])
+            else:
+                # New format: "- colname (type) [attributes]..."
+                col_match = re.search(r'-\s+(\w+)\s+\(', line)
+                if col_match:
+                    tables_columns[current_table].append(col_match.group(1).lower())
+                    
+                # Also check for DB column names that differ from field names
+                db_col_match = re.search(r'\[DB:\s+(\w+)\]', line)
+                if db_col_match:
+                    tables_columns[current_table].append(db_col_match.group(1).lower())
+    
+    # Parse the SQL to extract table aliases and column references
+    sql_lower = sql_query.lower()
+    
+    # Extract table aliases (e.g., "FROM table AS t" or "FROM table t")
+    alias_pattern = r'(?:from|join)\s+(\w+)(?:\s+as)?\s+(\w+)'
+    aliases = dict(re.findall(alias_pattern, sql_lower))
+    
+    # Additional pattern to catch aliases without 'as'
+    more_aliases = re.findall(r'from\s+(\w+)\s+(\w+)(?:\s|,|where|$)', sql_lower)
+    for table, alias in more_aliases:
+        if alias not in ['where', 'on', 'inner', 'outer', 'left', 'right', 'full', 'cross', 'join']:
+            aliases[table] = alias
+    
+    # Extract column references with their table prefixes
+    column_refs = []
+    
+    # Select clause columns
+    select_match = re.search(r'select\s+(.*?)\s+from', sql_lower, re.DOTALL)
+    if select_match:
+        select_columns = select_match.group(1).strip()
+        # Handle some common SQL functions and constructs
+        for func in ['count', 'sum', 'avg', 'min', 'max', 'coalesce', 'case when']:
+            select_columns = re.sub(f'{func}\s*\((.+?)\)', r'\1', select_columns)
+        
+        # Extract column references like "t.col", "table.col", or just "col"
+        select_cols = re.findall(r'(?:^|,|\s)(?:(\w+)\.)?(\w+)(?:$|\s|,|as)', select_columns)
+        column_refs.extend(select_cols)
+    
+    # Where clause columns
+    where_match = re.search(r'where\s+(.*?)(?:$|group by|order by|limit)', sql_lower, re.DOTALL)
+    if where_match:
+        where_columns = where_match.group(1).strip()
+        where_cols = re.findall(r'(\w+)\.(\w+)', where_columns)
+        column_refs.extend(where_cols)
+    
+    # Order by columns
+    order_match = re.search(r'order by\s+(.*?)(?:$|limit)', sql_lower, re.DOTALL)
+    if order_match:
+        order_columns = order_match.group(1).strip()
+        order_cols = re.findall(r'(\w+)\.(\w+)', order_columns)
+        column_refs.extend(order_cols)
+    
+    # Group by columns
+    group_match = re.search(r'group by\s+(.*?)(?:$|having|order by|limit)', sql_lower, re.DOTALL)
+    if group_match:
+        group_columns = group_match.group(1).strip()
+        group_cols = re.findall(r'(\w+)\.(\w+)', group_columns)
+        column_refs.extend(group_cols)
+    
+    # Join conditions
+    join_match = re.search(r'join.*?on\s+(.*?)(?:$|where|group by|order by|limit|join)', sql_lower, re.DOTALL)
+    if join_match:
+        join_columns = join_match.group(1).strip()
+        join_cols = re.findall(r'(\w+)\.(\w+)', join_columns)
+        column_refs.extend(join_cols)
+    
+    # Validate each column reference
+    invalid_columns = []
+    
+    for table_ref, col in column_refs:
+        # Skip if it's not a real column reference (e.g., * or 1)
+        if col == '*' or col.isdigit() or col in ['true', 'false']:
+            continue
+            
+        # Skip column aliases in the select list (heuristic)
+        if col in aliases.values():
+            continue
+            
+        # Find the actual table name from alias if used
+        table_name = None
+        if table_ref in aliases.values():
+            # It's an alias, find the original table
+            for orig_table, alias in aliases.items():
+                if alias == table_ref:
+                    table_name = orig_table
+                    break
+        elif table_ref in tables_columns:
+            # Direct table reference
+            table_name = table_ref
+        elif not table_ref:
+            # No table prefix (like in SELECT col)
+            # This is harder - need to check all tables
+            found = False
+            for t, cols in tables_columns.items():
+                if col in cols:
+                    found = True
+                    break
+            if found:
+                continue
+            else:
+                invalid_columns.append(f"Column '{col}' not found in any table")
+                continue
+        else:
+            # Could be a table name not found in schema
+            invalid_columns.append(f"Table or alias '{table_ref}' not found in schema")
+            continue
+            
+        # Now check if the column exists in that table
+        if table_name and table_name in tables_columns:
+            if col not in tables_columns[table_name]:
+                invalid_columns.append(f"Column '{col}' not found in table '{table_name}'")
+    
+    if invalid_columns:
+        return False, f"Invalid column references: {', '.join(invalid_columns)}"
+    
+    return True, "All column references are valid"
+
+def _validate_sql_syntax(sql_query: str) -> tuple[bool, str]:
+    """
+    Performs basic syntax validation on SQL query without executing it.
+    
+    Args:
+        sql_query: The SQL query string to validate
+        
+    Returns:
+        Tuple of (is_valid, message) where is_valid is True if syntax appears valid,
+        and message contains error details if invalid
+    """
+    # Check for basic SQL syntax issues
+    
+    # 1. Verify all parentheses are balanced
+    if sql_query.count('(') != sql_query.count(')'):
+        return False, "Unbalanced parentheses in SQL query"
+    
+    # 2. Check for basic patterns of common SQL statements
+    sql_lower = sql_query.lower().strip()
+    
+    # Check if it starts with basic SQL keywords
+    valid_starts = ['select', 'with', 'create', 'insert', 'update', 'delete']
+    if not any(sql_lower.startswith(keyword) for keyword in valid_starts):
+        return False, "SQL query doesn't start with a valid SQL command"
+    
+    # 3. For SELECT statements, check for basic required syntax structure
+    if sql_lower.startswith('select'):
+        if 'from' not in sql_lower:
+            return False, "SELECT query missing FROM clause"
+    
+    # 4. Check for unclosed quotes
+    single_quotes = sql_query.count("'")
+    double_quotes = sql_query.count('"')
+    if single_quotes % 2 != 0:
+        return False, "Unclosed single quotes in SQL query"
+    if double_quotes % 2 != 0:
+        return False, "Unclosed double quotes in SQL query"
+    
+    # 5. Check for missing semicolons in multi-statement queries
+    statements = sql_lower.count(';')
+    if statements > 1 and not sql_lower.endswith(';'):
+        return False, "Multi-statement SQL query missing semicolon at the end"
+    
+    return True, "SQL syntax appears valid"
 
 def refine_sql_query(sql_query: str, validation_error: str, conceptual_plan: str, database_context: str) -> str:
     """
