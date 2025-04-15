@@ -1,7 +1,7 @@
 # src/orchestration/workflow.py
 import logging
 import uuid
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 import traceback
 import asyncio  # For async orchestrator
 
@@ -21,6 +21,40 @@ logger = logging.getLogger(__name__)
 WORKFLOW_STATE_STORE: Dict[str, Dict[str, Any]] = {}
 logger.warning("Using basic in-memory WORKFLOW_STATE_STORE. State will be lost on restart.")
 # -----------------------------------------------------------------------------------
+def generate_data_description(database_context: str) -> str:
+    """
+    Generate a description of the datasets based on the database context.
+    
+    Args:
+        database_context: String containing schema and data summaries
+        
+    Returns:
+        A descriptive overview of the datasets
+    """
+    logger.info(f"Generating dataset description")
+    prompt = f"""
+As a helpful data assistant, please provide a clear, concise description of the datasets based on the database context below.
+This should be an overview that helps the user understand what kind of data they have, including:
+
+1. What tables are present and what they represent
+2. The key entities and their relationships
+3. What kinds of information are stored (e.g., sales, customers, products)
+4. The approximate size/scope of the data (e.g., how many records, timespan if evident)
+5. Any notable characteristics of the data (e.g., completeness, special features)
+
+DATABASE CONTEXT:
+{database_context}
+
+Your response should be informative but concise, written in plain language for a business user. Focus on describing WHAT data exists,
+not suggesting analyses. Present information in complete sentences organized into 1-3 short paragraphs.
+"""
+    try:
+        description = client.call_llm(prompt)
+        logger.info(f"Generated dataset description: {description[:100]}...")
+        return description.strip()
+    except Exception as e:
+        logger.error(f"Error generating data description: {e}")
+        return "I was unable to generate a description of the datasets due to an error."
 
 def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
     """
@@ -54,23 +88,39 @@ def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
         print(f"[History Stub - {session_id}] Step: Request Received - Input: {user_request}")
         logger.info(f"Request classified as {intent} (confidence: {confidence:.2f})")
         
-        # With our improved classifier, we can trust the "exploratory" classification directly
-        if intent == "exploratory":
+        # Handle descriptive exploratory request
+        if intent == "exploratory_descriptive":
+            print(f"[History Stub - {session_id}] Step: Descriptive Request Detected - Confidence: {confidence:.2f}")
+                
+            # Generate dataset description
+            description = generate_data_description(db_context)
+            print(f"[History Stub - {session_id}] Step: Dataset Description Generated")
+                
+            # Store minimal state
+            WORKFLOW_STATE_STORE[session_id] = {
+                'user_request': user_request,
+                'request_type': 'descriptive',
+                'description': description
+            }
+                
+            logger.info(f"Stored dataset description in state for session_id: {session_id}")
+            return {'description': description, 'session_id': session_id}
             
-            # Handle exploratory request - generate insights instead of SQL
-            print(f"[History Stub - {session_id}] Step: Exploratory Request Detected - Confidence: {confidence:.2f}")
-            
+        # Handle analytical exploratory request
+        elif intent == "exploratory_analytical":
+            print(f"[History Stub - {session_id}] Step: Analytical Request Detected - Confidence: {confidence:.2f}")
+                
             # Generate insights/suggestions using the planner in insights mode
             suggestions = planner.run_planner(user_request, db_context, mode="insights")
             print(f"[History Stub - {session_id}] Step: Insights Generated - Output:\n{suggestions}")
-            
-            # Store minimal state since we're not proceeding to SQL generation
+                
+            # Store minimal state
             WORKFLOW_STATE_STORE[session_id] = {
                 'user_request': user_request,
-                'request_type': 'exploratory',
+                'request_type': 'analytical',
                 'insights': suggestions
             }
-            
+                
             logger.info(f"Stored insights in state for session_id: {session_id}")
             return {'insights': suggestions, 'session_id': session_id}
         
@@ -233,20 +283,36 @@ async def initiate_analysis_async(user_request: str, db_uri: str) -> Dict[str, A
         print(f"[History Stub - {session_id}] Step: Request Received - Input: {user_request}")
         logger.info(f"Request classified as {intent} (confidence: {confidence:.2f})")
         
-        # With our improved classifier, we can trust the "exploratory" classification directly
-        if intent == "exploratory":
+        # Handle descriptive exploratory request
+        if intent == "exploratory_descriptive":
+            print(f"[History Stub - {session_id}] Step: Descriptive Request Detected - Confidence: {confidence:.2f}")
             
-            # Handle exploratory request - generate insights instead of SQL
-            print(f"[History Stub - {session_id}] Step: Exploratory Request Detected - Confidence: {confidence:.2f}")
+            # Generate dataset description
+            description = generate_data_description(db_context)
+            print(f"[History Stub - {session_id}] Step: Dataset Description Generated")
+            
+            # Store minimal state
+            WORKFLOW_STATE_STORE[session_id] = {
+                'user_request': user_request,
+                'request_type': 'descriptive',
+                'description': description
+            }
+            
+            logger.info(f"Stored dataset description in state for session_id: {session_id}")
+            return {'description': description, 'session_id': session_id}
+
+        # Handle analytical exploratory request
+        elif intent == "exploratory_analytical":
+            print(f"[History Stub - {session_id}] Step: Analytical Request Detected - Confidence: {confidence:.2f}")
             
             # Generate insights/suggestions using the planner in insights mode
             suggestions = planner.run_planner(user_request, db_context, mode="insights")
             print(f"[History Stub - {session_id}] Step: Insights Generated - Output:\n{suggestions}")
             
-            # Store minimal state since we're not proceeding to SQL generation
+            # Store minimal state
             WORKFLOW_STATE_STORE[session_id] = {
                 'user_request': user_request,
-                'request_type': 'exploratory',
+                'request_type': 'analytical',
                 'insights': suggestions
             }
             

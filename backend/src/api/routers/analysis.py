@@ -4,7 +4,7 @@ import logging
 
 from src.api.models import (
     AnalysisRequest, ExecuteRequest, 
-    GeneratedSQLResponse, SuggestionResponse, ErrorResponse,
+    GeneratedSQLResponse, SuggestionResponse, DataDescriptionResponse, ErrorResponse,
     AnalysisResultResponse, HistoryResponse
 )
 from src.orchestration.workflow import (
@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 DB_URI = "sqlite:///analysis.db"
 
 @router.post("/analyze", 
-             response_model=Union[GeneratedSQLResponse, SuggestionResponse, ErrorResponse],
+             response_model=Union[GeneratedSQLResponse, SuggestionResponse, DataDescriptionResponse, ErrorResponse],
              responses={
-                 200: {"description": "SQL generated or insights provided"},
+                 200: {"description": "SQL generated, insights provided, or data described"},
                  400: {"description": "Bad request"},
                  500: {"description": "Internal server error"}
              })
@@ -35,12 +35,27 @@ async def analyze(request: AnalysisRequest):
         user_query = request.query
         logger.info(f"API: Processing analysis request: '{user_query[:50]}...'")
         
-        # Analyze the request intent (exploratory vs specific)
+        # Analyze the request intent
         intent, confidence = classify_user_intent(user_query)
         logger.info(f"Query classified as {intent} (confidence: {confidence:.2f})")
         
-        if intent == "exploratory":
-            # For exploratory requests, generate insights
+        # Handle descriptive exploratory request
+        if intent == "exploratory_descriptive":
+            result = await initiate_analysis_async(user_query, DB_URI)
+            
+            if 'error' in result:
+                logger.error(f"Descriptive analysis error: {result['error']}")
+                return ErrorResponse(error=result['error'])
+            
+            if 'description' in result:
+                logger.info(f"Returning dataset description for query")
+                return DataDescriptionResponse(
+                    description=result['description'],
+                    session_id=result.get('session_id')
+                )
+        
+        # Handle analytical exploratory request
+        if intent == "exploratory_analytical":
             result = await initiate_analysis_async(user_query, DB_URI)
             
             if 'error' in result:

@@ -20,6 +20,11 @@ class SuggestionResponse(BaseModel):
     type: Literal["suggestions_provided"] = "suggestions_provided"
     suggestions: str
     session_id: Optional[str] = None
+    
+class DataDescriptionResponse(BaseModel):
+    type: Literal["data_described"] = "data_described"
+    description: str
+    session_id: Optional[str] = None
 
 class ErrorResponse(BaseModel):
     error: str
