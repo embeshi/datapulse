@@ -20,9 +20,9 @@ def run_planner(user_request: str, database_context: str,
         The generated plan or insights as a string.
     """
     if mode == "insights":
-        logger.info(f"Running planner in insights mode for exploratory request")
+        logger.info(f"Running planner in insights mode for exploratory request: '{user_request[:50]}...'")
         try:
-            prompt = prompts.get_insight_suggestion_prompt(database_context)
+            prompt = prompts.get_insight_suggestion_prompt(user_request, database_context)
             suggestions = client.call_llm(prompt)
             suggestions = suggestions.strip()
             logger.info(f"Planner generated insight suggestions:\n{suggestions[:200]}...")
