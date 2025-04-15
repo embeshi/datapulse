@@ -83,26 +83,107 @@ def _validate_table_references(sql_query: str, database_context: str) -> tuple[b
     
     return True, "All table references are valid"
 
+def refine_sql_query(sql_query: str, validation_error: str, conceptual_plan: str, database_context: str) -> str:
+    """
+    Refines an SQL query based on validation errors by prompting the LLM.
+    
+    Args:
+        sql_query: The original SQL query with errors
+        validation_error: The error message from validation
+        conceptual_plan: The original conceptual plan
+        database_context: String containing database schema and summaries
+        
+    Returns:
+        A refined SQL query addressing the validation errors
+    """
+    logger.info(f"Refining SQL query based on validation error: {validation_error}")
+    
+    try:
+        # Generate a prompt for the LLM to refine the SQL
+        prompt = prompts.get_sql_refinement_prompt(
+            sql_query, validation_error, conceptual_plan, database_context
+        )
+        
+        # Call the LLM with the refinement prompt
+        raw_refined_sql = client.call_llm(prompt)
+        
+        # Extract the SQL from the response
+        refined_sql = _extract_sql(raw_refined_sql)
+        
+        logger.info(f"SQL refinement produced updated query:\n{refined_sql}")
+        return refined_sql
+        
+    except Exception as e:
+        logger.error(f"SQL refinement failed: {e}")
+        # If refinement fails, return the original query with an error comment
+        return f"-- ERROR: Failed to refine query: {e}\n-- Original validation error: {validation_error}\n{sql_query}"
+
 def run_sql_generator(conceptual_plan: str, database_context: str) -> str:
-    """Generates the SQL query using the LLM."""
+    """Generates the SQL query using the LLM, with automatic validation and refinement."""
     logger.info(f"Running SQL generator for plan:\n{conceptual_plan}")
     try:
+        # Initial SQL generation
         prompt = prompts.get_sql_generation_prompt(conceptual_plan, database_context)
         raw_sql_response = client.call_llm(prompt)
         sql_query = _extract_sql(raw_sql_response)
         
-        # Validate SQL references only existing tables
-        is_valid, message = _validate_table_references(sql_query, database_context)
-        if not is_valid:
-            logger.warning(f"SQL validation failed: {message}")
-            # If the SQL contains an error comment from our updated prompt, just return it
-            if sql_query.strip().startswith('--'):
-                return sql_query
-            # Otherwise append our own error comment
+        # Validate the SQL query
+        is_valid, message = _validate_sql_query(sql_query, database_context)
+        
+        # If valid, return it directly
+        if is_valid:
+            logger.info(f"SQL validation passed. Final query:\n{sql_query}")
+            return sql_query
+        
+        # If invalid and contains explicit error comment, just return it
+        if sql_query.strip().startswith('--'):
+            logger.warning(f"SQL contains explicit error marker: {sql_query[:100]}...")
+            return sql_query
+            
+        # Attempt to refine the SQL query automatically
+        logger.warning(f"SQL validation failed: {message}. Attempting automatic refinement.")
+        
+        # Maximum refinement attempts to prevent infinite loops
+        max_attempts = 2
+        current_attempt = 0
+        current_query = sql_query
+        
+        while current_attempt < max_attempts:
+            current_attempt += 1
+            logger.info(f"SQL refinement attempt {current_attempt} of {max_attempts}")
+            
+            # Refine the SQL
+            refined_sql = refine_sql_query(
+                current_query, message, conceptual_plan, database_context
+            )
+            
+            # Validate the refined SQL
+            is_refined_valid, refined_message = _validate_sql_query(refined_sql, database_context)
+            
+            if is_refined_valid:
+                logger.info(f"Refinement successful. Valid SQL query produced on attempt {current_attempt}")
+                # Add a comment indicating this was auto-refined
+                return f"-- NOTE: This query was automatically refined to fix validation issues\n{refined_sql}"
+            
+            # If still invalid but different error, keep trying
+            if refined_message != message:
+                logger.info(f"Progress in refinement: New error is: {refined_message}")
+                current_query = refined_sql
+                message = refined_message
+            else:
+                # Same error persists, break the loop
+                logger.warning(f"Refinement not making progress, same error persists: {message}")
+                break
+        
+        # If we've exhausted refinement attempts or stopped due to lack of progress
+        if current_attempt > 0:
+            logger.warning(f"SQL refinement unsuccessful after {current_attempt} attempts. Returning best attempt with warning.")
+            return f"-- WARNING: Validation errors remain after {current_attempt} refinement attempts: {message}\n{current_query}"
+        else:
+            # We shouldn't reach this point, but as a fallback:
+            logger.warning(f"SQL validation failed and refinement was not attempted: {message}")
             return f"-- ERROR: {message}\n-- Generated query may not execute successfully.\n{sql_query}"
         
-        logger.info(f"SQL Generator produced query:\n{sql_query}")
-        return sql_query
     except Exception as e:
         logger.error(f"SQL Generator agent failed: {e}")
         raise

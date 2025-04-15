@@ -197,6 +197,60 @@ REVISED PLAN: [Either the original plan with minor optimizations, a significantl
 """
     return prompt.strip()
 
+def get_sql_refinement_prompt(sql_query: str, validation_error: str, 
+                             conceptual_plan: str, database_context: str) -> str:
+    """
+    Generates the prompt for SQL refinement when validation detects issues.
+    
+    Args:
+        sql_query: The original SQL query with validation errors
+        validation_error: The error message from validation
+        conceptual_plan: The original conceptual plan
+        database_context: String containing schema and data summaries
+        
+    Returns:
+        The formatted prompt string
+    """
+    prompt = f"""
+You are an expert SQL developer specializing in SQLite. Your task is to fix an SQL query that has
+validation errors before it's shown to the user. The system detected issues during automated validation,
+and you need to create a corrected version that will pass validation and execute successfully.
+
+DATABASE CONTEXT:
+{database_context}
+
+ORIGINAL CONCEPTUAL PLAN:
+{conceptual_plan}
+
+ORIGINAL SQL QUERY:
+{sql_query}
+
+VALIDATION ERROR:
+{validation_error}
+
+REFINEMENT INSTRUCTIONS:
+1. Carefully examine the validation error to identify the specific issues.
+2. Fix all problems identified in the validation error message.
+3. Common issues include:
+   - Referencing tables that don't exist in the database
+   - Referencing columns that don't exist in the specified tables
+   - SQL syntax errors like unbalanced parentheses or missing keywords
+   - Using incorrect table aliases
+   - Using incorrect column names or table-qualified column references
+4. Ensure your corrections maintain the original intent of the query as described in the conceptual plan.
+5. Only use tables and columns that explicitly appear in the database context.
+6. Make sure to use the exact column and table names as they appear in the database, not aliases or transformations.
+
+CRITICAL REQUIREMENTS:
+1. Your response must contain ONLY the corrected SQL query.
+2. Do not include any explanations, notes, or comments about your changes.
+3. The query must adhere strictly to SQLite syntax.
+4. The corrected query must accomplish the same goal as the original query.
+
+Provide your corrected SQL query below:
+"""
+    return prompt.strip()
+
 def get_sql_debug_prompt(user_request: str, failed_sql: str, error_message: str, 
                           conceptual_plan: str, database_context: str) -> str:
     """
