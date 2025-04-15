@@ -49,7 +49,14 @@ def _validate_table_references(sql_query: str, database_context: str) -> tuple[b
     # Extract table names from database_context (simple approach)
     existing_tables = []
     for line in database_context.splitlines():
-        if "-- Table:" in line:
+        # Check for both the new and old table format
+        if "--- Table:" in line:
+            # New format: --- Table: tablename (Model: ModelName) ---
+            table_match = re.search(r"--- Table: (\w+) \(Model:", line)
+            if table_match:
+                existing_tables.append(table_match.group(1).lower())
+        elif "-- Table:" in line:
+            # Old format: -- Table: tablename --
             table_match = re.search(r"-- Table: (\w+) --", line)
             if table_match:
                 existing_tables.append(table_match.group(1).lower())
@@ -63,10 +70,15 @@ def _validate_table_references(sql_query: str, database_context: str) -> tuple[b
     
     referenced_tables = set(from_matches + join_matches)
     
+    # Log the tables we found for debugging
+    logger.debug(f"Tables found in context: {existing_tables}")
+    logger.debug(f"Tables referenced in query: {referenced_tables}")
+    
     # Check if all referenced tables exist
     missing_tables = [table for table in referenced_tables if table not in existing_tables]
     
     if missing_tables:
+        logger.warning(f"Tables not found: {missing_tables}. Context tables: {existing_tables}")
         return False, f"Referenced tables that don't exist: {', '.join(missing_tables)}"
     
     return True, "All table references are valid"
