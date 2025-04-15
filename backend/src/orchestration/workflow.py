@@ -13,6 +13,7 @@ from src.prisma_utils import context as prisma_context
 from src.prisma_utils import executor as prisma_executor
 # Assuming history manager will be implemented later
 # from src.history import manager as history_manager
+from src.llm import client
 
 logger = logging.getLogger(__name__)
 
