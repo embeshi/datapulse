@@ -22,20 +22,24 @@ logger = logging.getLogger(__name__)
 WORKFLOW_STATE_STORE: Dict[str, Dict[str, Any]] = {}
 logger.warning("Using basic in-memory WORKFLOW_STATE_STORE. State will be lost on restart.")
 # -----------------------------------------------------------------------------------
-def generate_data_description(database_context: str) -> str:
+def generate_data_description(user_request: str, database_context: str) -> str:
     """
-    Generate a description of the datasets based on the database context.
+    Generate a description of the datasets based on the database context and user query.
     
     Args:
+        user_request: The user's original natural language query
         database_context: String containing schema and data summaries
         
     Returns:
-        A descriptive overview of the datasets
+        A descriptive response tailored to the user's query
     """
-    logger.info(f"Generating dataset description")
+    logger.info(f"Generating dataset description for query: '{user_request[:50]}...'")
     prompt = f"""
-As a helpful data assistant, please provide a clear, concise description of the datasets based on the database context below.
-This should be an overview that helps the user understand what kind of data they have, including:
+As a helpful data assistant, please answer the user's question about the dataset based on the database context provided below.
+The user has asked: "{user_request}"
+
+Focus on providing a clear, accurate response that directly addresses the user's question about what data is available.
+If the user's question is general (like "what are these datasets about?"), provide an overview including:
 
 1. What tables are present and what they represent
 2. The key entities and their relationships
@@ -43,11 +47,19 @@ This should be an overview that helps the user understand what kind of data they
 4. The approximate size/scope of the data (e.g., how many records, timespan if evident)
 5. Any notable characteristics of the data (e.g., completeness, special features)
 
+If the user is asking about specific aspects of the data (like "do we have customer address information?"), 
+focus your answer on those specific details.
+
 DATABASE CONTEXT:
 {database_context}
 
-Your response should be informative but concise, written in plain language for a business user. Focus on describing WHAT data exists,
-not suggesting analyses. Present information in complete sentences organized into 1-3 short paragraphs.
+Your response should be:
+- Informative and accurate, based only on the information in the DATABASE CONTEXT
+- Concise and organized in 1-3 short paragraphs
+- Written in plain language for a business user
+- Focused on describing the data that exists, not suggesting analyses
+
+Remember to directly address the user's specific question: "{user_request}"
 """
     try:
         description = client.call_llm(prompt)
@@ -93,9 +105,9 @@ def initiate_analysis(user_request: str, db_uri: str) -> Dict[str, str]:
         if intent == "exploratory_descriptive":
             print(f"[History Stub - {session_id}] Step: Descriptive Request Detected - Confidence: {confidence:.2f}")
                 
-            # Generate dataset description
-            description = generate_data_description(db_context)
-            print(f"[History Stub - {session_id}] Step: Dataset Description Generated")
+            # Generate dataset description based on user query
+            description = generate_data_description(user_request, db_context)
+            print(f"[History Stub - {session_id}] Step: Dataset Description Generated for query: '{user_request[:50]}...'")
                 
             # Store minimal state
             WORKFLOW_STATE_STORE[session_id] = {
@@ -288,9 +300,9 @@ async def initiate_analysis_async(user_request: str, db_uri: str) -> Dict[str, A
         if intent == "exploratory_descriptive":
             print(f"[History Stub - {session_id}] Step: Descriptive Request Detected - Confidence: {confidence:.2f}")
             
-            # Generate dataset description
-            description = generate_data_description(db_context)
-            print(f"[History Stub - {session_id}] Step: Dataset Description Generated")
+            # Generate dataset description based on user query
+            description = generate_data_description(user_request, db_context)
+            print(f"[History Stub - {session_id}] Step: Dataset Description Generated for query: '{user_request[:50]}...'")
             
             # Store minimal state
             WORKFLOW_STATE_STORE[session_id] = {
